@@ -5,6 +5,7 @@
 | Port | Scope | Purpose |
 | --- | --- | --- |
 | `127.0.0.1:6080` on host -> `6080/tcp` in container | Localhost only by default | noVNC web UI and websocket proxy |
+| `127.0.0.1:8080` on host -> `8080/tcp` in container | Localhost only by default | Authenticated Node.js browser-task API |
 | `127.0.0.1:5900` inside container only | Not published by Compose | x11vnc backend for noVNC |
 | `127.0.0.1:9222` inside container only | Not published by Compose | Opera CDP for the stdio browser MCP bridge |
 
@@ -28,6 +29,7 @@ Use `docker compose down -v` to remove the profile volume.
 4. x11vnc serving the virtual display over the accepted inetd connection without opening its own TCP listener.
 5. noVNC/websockify on `0.0.0.0:6080` inside the container; Compose restricts the host bind to `127.0.0.1`.
 6. Opera Stable on the virtual display.
+7. Node.js task API on `0.0.0.0:8080` inside the container; Compose restricts the host bind to `127.0.0.1` and all `/v1/*` endpoints require bearer auth.
 
 ## Readiness and health
 
@@ -43,6 +45,6 @@ The image includes `/usr/local/bin/pi-computer-healthcheck`, also configured as 
 ## Current limitations
 
 - no noVNC authentication or TLS yet; keep the default loopback host bind for local-only access.
-- no public CDP/MCP/task API port in this MVP; the included browser MCP smoke bridge uses stdio only.
+- the task API is a constrained MVP that performs an `open_url` smoke task through the stdio browser MCP bridge; full Pi `AgentSession` execution is next.
 - Opera CDP is intended for internal Pi/browser automation only; do not publish port `9222` by default.
 - The Opera apt repository is used at build time, so builds require external network access and trust in Opera's signed Debian repository.

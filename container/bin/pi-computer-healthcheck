@@ -7,6 +7,7 @@ pgrep -u "$(id -u)" -x socat >/dev/null || fail "VNC IPv4 loopback relay not run
 pgrep -u "$(id -u)" -f 'websockify|novnc_proxy' >/dev/null || fail "noVNC/websockify not running"
 pgrep -u "$(id -u)" -f '/usr/lib/x86_64-linux-gnu/opera/opera|/usr/bin/opera' >/dev/null || fail "Opera not running"
 curl -fsS "http://127.0.0.1:${NOVNC_PORT:-6080}/vnc.html" >/dev/null || fail "noVNC HTTP endpoint not responding"
+curl -fsS "http://127.0.0.1:${API_PORT:-8080}/healthz" >/dev/null || fail "Node task API /healthz not responding"
 cdp_host="${CDP_HOST:-127.0.0.1}"
 cdp_port="${CDP_PORT:-9222}"
 version_json="$(curl -fsS "http://${cdp_host}:${cdp_port}/json/version")" || fail "Opera CDP /json/version not responding on ${cdp_host}:${cdp_port}"
@@ -25,4 +26,4 @@ fi
 if nc -z -w 1 ::1 "${vnc_port}" >/dev/null 2>&1; then
   fail "VNC must not accept IPv6 loopback ::1"
 fi
-echo "healthy: desktop, noVNC, IPv4-only VNC loopback, Opera, and loopback-only CDP are ready"
+echo "healthy: desktop, noVNC, task API, IPv4-only VNC loopback, Opera, and loopback-only CDP are ready"

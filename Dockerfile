@@ -12,6 +12,10 @@ ENV DISPLAY=:1 \
     CDP_HOST=127.0.0.1 \
     CDP_PORT=9222 \
     BROWSER_MCP_TRANSPORT=stdio \
+    API_HOST=0.0.0.0 \
+    API_PORT=8080 \
+    PI_COMPUTER_API_TOKEN=local-dev-token-change-me \
+    PI_COMPUTER_TASK_STORE=/home/pi/pi-computer/tasks \
     SCREEN_WIDTH=1280 \
     SCREEN_HEIGHT=800 \
     SCREEN_DEPTH=24 \
@@ -23,6 +27,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates curl wget gnupg apt-transport-https \
       dumb-init supervisor procps net-tools netcat-openbsd socat \
+      nodejs \
       python3 python3-websocket \
       xvfb x11-utils x11vnc fluxbox dbus-x11 gsettings-desktop-schemas \
       novnc websockify \
@@ -43,11 +48,12 @@ RUN apt-get update \
 
 COPY container/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 COPY container/bin/ /usr/local/bin/
-RUN chmod +x /usr/local/bin/pi-computer-*
+COPY container/api/ /opt/pi-computer/api/
+RUN chmod +x /usr/local/bin/pi-computer-* /opt/pi-computer/api/server.js
 
 USER pi
 WORKDIR /home/pi
-EXPOSE 6080
+EXPOSE 6080 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=35s --retries=5 CMD ["/usr/local/bin/pi-computer-healthcheck"]
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]

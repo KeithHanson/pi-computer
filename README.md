@@ -68,6 +68,7 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - Opera CDP is enabled on container loopback only (`127.0.0.1:9222`) for internal automation; no CDP port is published by Compose.
 - A minimal browser MCP-compatible smoke bridge is packaged as a stdio-only child process at `/usr/local/bin/pi-computer-browser-mcp`; no MCP port is published by Compose.
 - noVNC is published only on host loopback by default: `127.0.0.1:6080` (override with `NOVNC_HOST_PORT` for local port conflicts).
+- An authenticated Node.js browser-task API is published on host loopback by default: `127.0.0.1:8080` (override `API_HOST_PORT`; set `PI_COMPUTER_API_TOKEN` before shared use).
 - Compose allocates `1gb` `/dev/shm` for browser stability.
 - Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, loopback VNC readiness/no IPv6 VNC reachability, and CDP `/json/version` readiness without wildcard CDP binding.
 
@@ -121,11 +122,24 @@ docker compose exec pi-computer curl -fsS http://127.0.0.1:9222/json/version
 ./scripts/smoke-host-boundary.sh
 docker compose exec pi-computer opera --version
 curl -fsSI http://127.0.0.1:6080/vnc.html
+curl -fsS http://127.0.0.1:8080/healthz
+./scripts/smoke-api.sh
 docker compose port pi-computer 6080
 # These should return nothing because raw VNC and CDP are intentionally not published:
 docker compose port pi-computer 5900 || true
 docker compose port pi-computer 9222 || true
 ```
+
+### Browser task API
+
+See [`docs/browser-task-api.md`](docs/browser-task-api.md) for authentication, request/response shapes, lifecycle states, SSE events, artifact storage, and MVP limitations. The smoke path is:
+
+```sh
+export PI_COMPUTER_API_TOKEN=local-dev-token-change-me
+./scripts/smoke-api.sh
+```
+
+The API is intentionally declarative. It accepts an `open_url` browser task and does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or Pi CLI arguments.
 
 ### Security notes for the MVP
 
