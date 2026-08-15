@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""Minimal stdio browser bridge for pi-computer smoke validation.
+
+This intentionally exposes no listening socket. Pi or a local smoke test starts it as a
+child process over stdio and it reaches Opera through the container-local CDP endpoint.
+It is a small compatibility bridge until the Pi AgentSession MCP packaging lands.
+"""
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+try:
+    import websocket
+except Exception as exc:  # pragma: no cover - runtime dependency guard
+    websocket = None
+    websocket_import_error = exc
+else:
+    websocket_import_error = None
+
+CDP_HOST = os.environ.get("CDP_HOST", "127.0.0.1")
+CDP_PORT = int(os.environ.get("CDP_PORT", "9222"))
+CDP_BASE = os.environ.get("CDP_BASE_URL", f"http://{CDP_HOST}:{CDP_PORT}")
+MAX_RESULT_BYTES = int(os.environ.get("BROWSER_MCP_MAX_RESULT_BYTES", "131072"))
+
+
+def cdp_get(path):
+    with urllib.request.urlopen(f"{CDP_BASE}{path}", timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def truncate(value):
+    encoded = json.dumps(value, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) <= MAX_RESULT_BYTES:
+        return value
+    return {"truncated": True, "maxResultBytes": MAX_RESULT_BYTES}
+
+
+def first_page_target():
+    targets = cdp_get("/json/list")
+    for target in targets:
+        if target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
+            return target
+    raise RuntimeError("no page target with websocket debugger URL")
+
+
+def ws_call(ws_url, method, params=None):
+    if websocket is None:
+        raise RuntimeError(f"python websocket dependency unavailable: {websocket_import_error}")
+    ws = websocket.create_connection(ws_url, timeout=5)
+    try:
+        message = {"id": 1, "method": method}
+        if params is not None:
+            message["params"] = params
+        ws.send(json.dumps(message))
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            response = json.loads(ws.recv())
+            if response.get("id") == 1:
+                if "error" in response:
+                    raise RuntimeError(response["error"])
+                return response.get("result", {})
+        raise RuntimeError(f"timed out waiting for {method}")
+    finally:
+        ws.close()
+
+
+def tool_result(name, arguments):
+    if name == "browser.version":
+        return cdp_get("/json/version")
+    if name == "browser.targets":
+        return cdp_get("/json/list")
+    if name == "browser.navigate":
+        url = (arguments or {}).get("url")
+        if not isinstance(url, str) or not url.startswith(("http://", "https://", "about:")):
+            raise RuntimeError("browser.navigate requires http(s) or about: URL")
+        target = first_page_target()
+        return ws_call(target["webSocketDebuggerUrl"], "Page.navigate", {"url": url})
+    raise RuntimeError(f"unknown tool: {name}")
+
+
+def respond(request, result=None, error=None):
+    response = {"jsonrpc": "2.0", "id": request.get("id")}
+    if error is None:
+        response["result"] = truncate(result if result is not None else {})
+    else:
+        response["error"] = {"code": -32000, "message": str(error)}
+    print(json.dumps(response, separators=(",", ":")), flush=True)
+
+
+def main():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            request = json.loads(line)
+            method = request.get("method")
+            if method == "initialize":
+                respond(request, {"serverInfo": {"name": "pi-computer-browser-bridge", "version": "0.1.0"}, "transport": "stdio", "cdpBaseUrl": CDP_BASE})
+            elif method == "tools/list":
+                respond(request, {"tools": [
+                    {"name": "browser.version", "description": "Read Opera CDP /json/version metadata."},
+                    {"name": "browser.targets", "description": "List Opera CDP page targets without exposing websocket URLs publicly."},
+                    {"name": "browser.navigate", "description": "Navigate the first page target to an http(s) or about: URL."},
+                ]})
+            elif method == "tools/call":
+                params = request.get("params") or {}
+                respond(request, {"content": [{"type": "json", "json": tool_result(params.get("name"), params.get("arguments") or {})}]})
+            else:
+                respond(request, error=f"unsupported method: {method}")
+        except Exception as exc:
+            respond(request if 'request' in locals() else {"id": None}, error=exc)
+
+
+if __name__ == "__main__":
+    main()

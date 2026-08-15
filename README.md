@@ -65,9 +65,11 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - `dumb-init` + `supervisord` process supervision.
 - Xvfb virtual display, Fluxbox window manager, x11vnc, noVNC/websockify, and Opera Stable.
 - Direct VNC is relayed only on container IPv4 loopback (`127.0.0.1:5900`); x11vnc runs per connection in inetd mode without opening its own TCP listener, container IPv6 is disabled by Compose, and no VNC port is published by Compose.
-- noVNC is published only on host loopback by default: `127.0.0.1:6080`.
+- Opera CDP is enabled on container loopback only (`127.0.0.1:9222`) for internal automation; no CDP port is published by Compose.
+- A minimal browser MCP-compatible smoke bridge is packaged as a stdio-only child process at `/usr/local/bin/pi-computer-browser-mcp`; no MCP port is published by Compose.
+- noVNC is published only on host loopback by default: `127.0.0.1:6080` (override with `NOVNC_HOST_PORT` for local port conflicts).
 - Compose allocates `1gb` `/dev/shm` for browser stability.
-- Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, and loopback VNC readiness/no IPv6 VNC reachability.
+- Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, loopback VNC readiness/no IPv6 VNC reachability, and CDP `/json/version` readiness without wildcard CDP binding.
 
 ### Quick start
 
@@ -113,15 +115,22 @@ docker compose exec pi-computer sh -lc 'ss -ltnp 2>/dev/null || netstat -ltnp'
 docker compose exec pi-computer nc -vz 127.0.0.1 5900
 # This should fail because container IPv6 is disabled and x11vnc must not listen on :::5900:
 docker compose exec pi-computer nc -vz ::1 5900
+docker compose exec pi-computer curl -fsS http://127.0.0.1:9222/json/version
+./scripts/smoke-cdp.sh
+./scripts/smoke-browser-mcp.sh
+./scripts/smoke-host-boundary.sh
 docker compose exec pi-computer opera --version
 curl -fsSI http://127.0.0.1:6080/vnc.html
 docker compose port pi-computer 6080
-# This should return nothing because VNC is intentionally not published:
+# These should return nothing because raw VNC and CDP are intentionally not published:
 docker compose port pi-computer 5900 || true
+docker compose port pi-computer 9222 || true
 ```
 
 ### Security notes for the MVP
 
 The container is intended for local development only. noVNC has no application-level authentication in this MVP, so Compose binds it to host loopback. Do not publish port 6080 on a public interface without adding authentication and transport security. Direct VNC uses `-nopw` only because x11vnc runs per connection in inetd mode without its own TCP listener, a TCP4-only relay listens on container IPv4 loopback, container IPv6 is disabled by Compose, and VNC is not exposed by Compose.
 
-Opera is launched with `--no-sandbox` because Chromium-family browsers commonly cannot initialize their sandbox inside restricted containers without additional host configuration. The container compensates partially with a non-root browser user and Compose `no-new-privileges`, but this is still a known MVP limitation.
+Opera is launched as the non-root `pi` user with CDP constrained to container loopback. It currently uses `--no-sandbox` because this Docker runtime cannot initialize Opera's Chromium sandbox with `no-new-privileges`; a later hardening slice should document the minimum required runtime exception rather than publishing raw browser-control ports.
+
+See [`docs/protected-opera-cdp-mcp.md`](docs/protected-opera-cdp-mcp.md) for the CDP/MCP topology, environment variables, smoke scripts, and limitations.
