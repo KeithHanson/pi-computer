@@ -1,16 +1,10 @@
-# Authenticated browser task API
+# Browser task API
 
 The pi-computer container now includes a minimal Node.js task API supervised inside the desktop container. It accepts constrained browser tasks and performs the MVP browser work through the internal stdio browser MCP bridge (`/usr/local/bin/pi-computer-browser-mcp`), which in turn talks to Opera CDP on container loopback.
 
-## Authentication
+## Access model
 
-All `/v1/*` endpoints require a bearer token:
-
-```http
-Authorization: Bearer <PI_COMPUTER_API_TOKEN>
-```
-
-For local development Compose defaults `PI_COMPUTER_API_TOKEN` to `local-dev-token-change-me`; operators should override it before sharing the loopback port. `/healthz` is unauthenticated for container readiness only.
+`/healthz` and `/v1/*` are directly reachable on the loopback-published API port. This deployment model assumes host firewalls and internal network boundaries provide the protection layer, so the API no longer enforces bearer tokens.
 
 ## Endpoints
 
@@ -52,7 +46,7 @@ Task states used by this implementation: `queued`, `starting`, `running`, `cance
 
 ### `GET /v1/tasks/:taskId/events`
 
-Streams task events as authenticated Server-Sent Events (`text/event-stream`). Events include state transitions and browser bridge milestones.
+Streams task events as unauthenticated Server-Sent Events (`text/event-stream`). Events include state transitions and browser bridge milestones.
 
 ### `POST /v1/tasks/:taskId/cancel`
 
@@ -73,7 +67,6 @@ The browser observation artifact records the submitted request, CDP browser vers
 
 ## Limitations and next steps
 
-- The implementation proves the authenticated API shape and real Opera/CDP/MCP browser path; it is not yet a full Pi `AgentSession` integration.
-- noVNC operator access is now protected by a separate bearer/basic auth gate on the loopback-published local development port. Its token (`PI_COMPUTER_NOVNC_TOKEN`) is distinct from the API token (`PI_COMPUTER_API_TOKEN`) so rotating one control plane does not silently change the other.
-- The default local token must be changed for any shared environment.
+- The implementation proves the loopback-published API shape and real Opera/CDP/MCP browser path; it is not yet a full Pi `AgentSession` integration.
+- noVNC operator access is also direct on the loopback-published local development port; rely on host/network controls for non-local deployments.
 - Ephemeral profile cleanup is still provided by the existing browser/container lifecycle rather than a per-task Opera profile manager; deeper Pi SDK execution and task-scoped profile orchestration are the next runtime slice.

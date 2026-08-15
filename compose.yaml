@@ -17,16 +17,12 @@ services:
       SCREEN_DEPTH: "24"
       NOVNC_PORT: "6080"
       NOVNC_BACKEND_PORT: "6081"
-      PI_COMPUTER_NOVNC_TOKEN: "${PI_COMPUTER_NOVNC_TOKEN:-local-novnc-token-change-me}"
-      PI_COMPUTER_NOVNC_USERNAME: "${PI_COMPUTER_NOVNC_USERNAME:-operator}"
-      PI_COMPUTER_NOVNC_PASSWORD: "${PI_COMPUTER_NOVNC_PASSWORD:-}"
       VNC_PORT: "5900"
       CDP_HOST: "127.0.0.1"
       CDP_PORT: "9222"
       BROWSER_MCP_TRANSPORT: "stdio"
       API_HOST: "0.0.0.0"
       API_PORT: "8080"
-      PI_COMPUTER_API_TOKEN: "${PI_COMPUTER_API_TOKEN:-local-dev-token-change-me}"
       PI_COMPUTER_TASK_STORE: "/home/pi/pi-computer/tasks"
     security_opt:
       - no-new-privileges:true

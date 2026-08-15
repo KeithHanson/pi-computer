@@ -43,7 +43,7 @@ tini
     ├── openbox (or xfce4-session fallback)
     ├── x11vnc bound to 127.0.0.1:5900
     ├── websockify/noVNC backend bound to loopback
-    ├── authenticated noVNC operator access gate
+    ├── noVNC operator access loopback proxy
     ├── Opera launcher/readiness helper
     ├── MCP browser bridge bound to stdio or loopback only
     ├── Node.js API/task worker
@@ -54,12 +54,12 @@ Supervisor config should forward logs to stdout/stderr, use stop groups, set res
 
 ### Ports and ingress
 
-Default published port: one authenticated HTTP(S) ingress, initially `8080` for local development.
+Default published ports for local development are loopback-only HTTP endpoints: `8080` for the task API and `6080` for noVNC.
 
 Internal-only ports/boundaries:
 
 - `127.0.0.1:5900` x11vnc only;
-- loopback websockify/noVNC backend only, fronted by an authenticated noVNC gate;
+- loopback websockify/noVNC backend only, fronted by a loopback-published noVNC proxy;
 - loopback/private CDP only;
 - loopback or stdio MCP only;
 - Node API may bind loopback if fronted by an internal proxy.
@@ -68,7 +68,7 @@ The ingress routes:
 
 - `/v1/*` to the Node API;
 - `/events/*` or task-scoped SSE/WebSocket endpoint to the API;
-- `/novnc/*` or the local `6080` operator port to authenticated noVNC assets/websocket proxy.
+- `/novnc/*` or the local `6080` operator port to noVNC assets/websocket proxy.
 
 No default deployment publishes raw VNC, CDP, MCP, or Supervisor control ports.
 
@@ -92,13 +92,13 @@ Recommended runtime controls:
 
 ### Node API and session model
 
-The public API is asynchronous, authenticated, and declarative. It accepts browser tasks, not arbitrary automation commands.
+The public API is asynchronous and declarative. It accepts browser tasks, not arbitrary automation commands.
 
 Initial endpoints:
 
 - `POST /v1/tasks` returns `202 { "taskId": "..." }`.
 - `GET /v1/tasks/:taskId` returns task status, timestamps, result summary, and artifact manifest when available.
-- `GET /v1/tasks/:taskId/events` streams authenticated SSE events; WebSocket can be added if bidirectional client events become necessary.
+- `GET /v1/tasks/:taskId/events` streams SSE events; WebSocket can be added if bidirectional client events become necessary.
 - `POST /v1/tasks/:taskId/cancel` requests cooperative cancellation.
 - `GET /v1/artifacts/:artifactId` serves authorized artifacts by manifest reference.
 
@@ -115,7 +115,7 @@ Example task shape:
 
 Validation requirements:
 
-- authenticate every endpoint including noVNC;
+- keep the published API/noVNC endpoints on loopback or another trusted internal boundary unless a separate ingress adds auth/TLS;
 - cap request body size, instruction length, timeout, redirects, artifact size, and event history;
 - restrict URL schemes to `http`/`https` unless explicitly configured;
 - reject arbitrary shell, process, environment, filesystem path, raw MCP, and raw CDP inputs;
@@ -185,8 +185,8 @@ Expected future workflow:
 
 1. Build the image with pinned dependencies.
 2. Start Compose with one published ingress port, bounded `/dev/shm`, and security options.
-3. Submit a task to the authenticated API.
-4. Observe task events and, if necessary, inspect the desktop through authenticated noVNC.
+3. Submit a task to the loopback-published API.
+4. Observe task events and, if necessary, inspect the desktop through loopback-published noVNC.
 5. Verify no raw VNC/CDP/MCP ports are reachable from the host.
 
 ### MVP non-goals
