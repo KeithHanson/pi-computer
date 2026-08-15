@@ -7,6 +7,7 @@ It is a small compatibility bridge until the Pi AgentSession MCP packaging lands
 """
 import json
 import os
+import socket
 import sys
 import time
 import urllib.error
@@ -24,6 +25,8 @@ CDP_HOST = os.environ.get("CDP_HOST", "127.0.0.1")
 CDP_PORT = int(os.environ.get("CDP_PORT", "9222"))
 CDP_BASE = os.environ.get("CDP_BASE_URL", f"http://{CDP_HOST}:{CDP_PORT}")
 MAX_RESULT_BYTES = int(os.environ.get("BROWSER_MCP_MAX_RESULT_BYTES", "131072"))
+READY_TIMEOUT_SECONDS = float(os.environ.get("BROWSER_MCP_READY_TIMEOUT_SECONDS", "20"))
+RETRY_INTERVAL_SECONDS = float(os.environ.get("BROWSER_MCP_RETRY_INTERVAL_SECONDS", "0.25"))
 
 
 def cdp_get(path):
@@ -44,6 +47,26 @@ def first_page_target():
         if target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
             return target
     raise RuntimeError("no page target with websocket debugger URL")
+
+
+def should_retry(exc):
+    if isinstance(exc, RuntimeError):
+        message = str(exc)
+        return "no page target" in message or "timed out" in message
+    return isinstance(exc, (socket.timeout, TimeoutError, ConnectionError, OSError, urllib.error.URLError))
+
+
+def wait_for_page_target(deadline):
+    last_exc = None
+    while time.time() < deadline:
+        try:
+            return first_page_target()
+        except Exception as exc:
+            if not should_retry(exc):
+                raise
+            last_exc = exc
+            time.sleep(RETRY_INTERVAL_SECONDS)
+    raise RuntimeError(f"timed out waiting for browser page target readiness: {last_exc or 'unknown error'}")
 
 
 def ws_call(ws_url, method, params=None):
@@ -67,17 +90,33 @@ def ws_call(ws_url, method, params=None):
         ws.close()
 
 
+def wait_for_ws_result(target_supplier, method, params=None):
+    deadline = time.time() + READY_TIMEOUT_SECONDS
+    last_exc = None
+    while time.time() < deadline:
+        try:
+            target = target_supplier()
+            return ws_call(target["webSocketDebuggerUrl"], method, params)
+        except Exception as exc:
+            if not should_retry(exc):
+                raise
+            last_exc = exc
+            time.sleep(RETRY_INTERVAL_SECONDS)
+    raise RuntimeError(f"timed out waiting for browser websocket readiness for {method}: {last_exc or 'unknown error'}")
+
+
 def tool_result(name, arguments):
     if name == "browser.version":
         return cdp_get("/json/version")
     if name == "browser.targets":
+        wait_for_page_target(time.time() + READY_TIMEOUT_SECONDS)
         return cdp_get("/json/list")
     if name == "browser.navigate":
         url = (arguments or {}).get("url")
         if not isinstance(url, str) or not url.startswith(("http://", "https://", "about:")):
             raise RuntimeError("browser.navigate requires http(s) or about: URL")
-        target = first_page_target()
-        return ws_call(target["webSocketDebuggerUrl"], "Page.navigate", {"url": url})
+        wait_for_page_target(time.time() + READY_TIMEOUT_SECONDS)
+        return wait_for_ws_result(first_page_target, "Page.navigate", {"url": url})
     raise RuntimeError(f"unknown tool: {name}")
 
 
@@ -102,8 +141,8 @@ def main():
             elif method == "tools/list":
                 respond(request, {"tools": [
                     {"name": "browser.version", "description": "Read Opera CDP /json/version metadata."},
-                    {"name": "browser.targets", "description": "List Opera CDP page targets without exposing websocket URLs publicly."},
-                    {"name": "browser.navigate", "description": "Navigate the first page target to an http(s) or about: URL."},
+                    {"name": "browser.targets", "description": "List Opera CDP page targets after waiting for startup readiness without exposing websocket URLs publicly."},
+                    {"name": "browser.navigate", "description": "Navigate the first ready page target to an http(s) or about: URL, retrying through initial Opera startup races."},
                 ]})
             elif method == "tools/call":
                 params = request.get("params") or {}
