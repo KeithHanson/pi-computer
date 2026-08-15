@@ -111,6 +111,13 @@ def tool_result(name, arguments):
     if name == "browser.targets":
         wait_for_page_target(time.time() + READY_TIMEOUT_SECONDS)
         return cdp_get("/json/list")
+    if name == "browser.probe":
+        wait_for_page_target(time.time() + READY_TIMEOUT_SECONDS)
+        return wait_for_ws_result(
+            first_page_target,
+            "Runtime.evaluate",
+            {"expression": "window.location.href", "returnByValue": True},
+        )
     if name == "browser.navigate":
         url = (arguments or {}).get("url")
         if not isinstance(url, str) or not url.startswith(("http://", "https://", "about:")):
@@ -142,6 +149,7 @@ def main():
                 respond(request, {"tools": [
                     {"name": "browser.version", "description": "Read Opera CDP /json/version metadata."},
                     {"name": "browser.targets", "description": "List Opera CDP page targets after waiting for startup readiness without exposing websocket URLs publicly."},
+                    {"name": "browser.probe", "description": "Verify the first ready page target accepts non-mutating websocket calls by reading window.location.href."},
                     {"name": "browser.navigate", "description": "Navigate the first ready page target to an http(s) or about: URL, retrying through initial Opera startup races."},
                 ]})
             elif method == "tools/call":
