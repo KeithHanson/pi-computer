@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+for _ in $(seq 1 60); do
+  if xdpyinfo -display "${DISPLAY:-:1}" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+rm -f "${HOME}/.config/opera/SingletonLock" "${HOME}/.config/opera/SingletonSocket" "${HOME}/.config/opera/SingletonCookie"
+exec dbus-run-session -- /usr/bin/opera \
+  --no-first-run \
+  --disable-default-apps \
+  --disable-dev-shm-usage=false \
+  --disable-gpu \
+  --no-sandbox \
+  --user-data-dir="${HOME}/.config/opera" \
+  about:blank

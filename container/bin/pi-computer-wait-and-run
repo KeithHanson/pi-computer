@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+name="$1"
+shift
+for _ in $(seq 1 60); do
+  if xdpyinfo -display "${DISPLAY:-:1}" >/dev/null 2>&1; then
+    exec "$@"
+  fi
+  sleep 1
+done
+echo "timed out waiting for X display before starting ${name}" >&2
+exit 1

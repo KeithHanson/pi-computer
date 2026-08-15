@@ -1,0 +1,27 @@
+services:
+  pi-computer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pi-computer:local
+    init: true
+    shm_size: "1gb"
+    ports:
+      - "127.0.0.1:6080:6080"
+    volumes:
+      - pi-computer-home:/home/pi
+    environment:
+      SCREEN_WIDTH: "1280"
+      SCREEN_HEIGHT: "800"
+      SCREEN_DEPTH: "24"
+      NOVNC_PORT: "6080"
+      VNC_PORT: "5900"
+    security_opt:
+      - no-new-privileges:true
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
+      net.ipv6.conf.default.disable_ipv6: "1"
+    restart: unless-stopped
+
+volumes:
+  pi-computer-home:

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+exec /usr/local/bin/pi-computer-wait-and-run x11vnc \
+  /usr/bin/x11vnc \
+  -display "${DISPLAY:-:1}" \
+  -inetd \
+  -nopw \
+  -shared \
+  -noxdamage \
+  -quiet
