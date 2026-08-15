@@ -12,7 +12,7 @@ Pi / task runner
           -> Opera on Xvfb/noVNC desktop
 ```
 
-No raw CDP port, MCP port, or direct browser-control API is published by `compose.yaml`. The default host-published ports are loopback-only noVNC on `127.0.0.1:6080` and the authenticated Node.js task API on `127.0.0.1:8080`.
+No raw CDP port, MCP port, or direct browser-control API is published by `compose.yaml`. The default host-published ports are loopback-only noVNC on `127.0.0.1:6080` and the Node.js task API on `127.0.0.1:8080`.
 
 ## Ports and environment
 
@@ -26,7 +26,7 @@ No raw CDP port, MCP port, or direct browser-control API is published by `compos
 | `NOVNC_PORT` | `6080` | container port | Operator desktop UI |
 | `VNC_PORT` | `5900` | container loopback only | x11vnc backend for noVNC |
 
-Do not change `CDP_HOST` to `0.0.0.0`, add a Compose `ports` entry for `9222`, or run the browser MCP bridge as a network service unless a later authenticated internal ingress design is added.
+Do not change `CDP_HOST` to `0.0.0.0`, add a Compose `ports` entry for `9222`, or run the browser MCP bridge as a network service unless a later trusted internal ingress design is added.
 
 ## MCP bridge
 
@@ -62,9 +62,9 @@ curl -fsSI -H "Authorization: Bearer ${PI_COMPUTER_NOVNC_TOKEN:-local-novnc-toke
 
 ## Limitations
 
-- The authenticated task API currently uses this bridge directly for the `open_url` MVP smoke task; full Pi AgentSession integration remains the next runtime step.
+- The loopback-published task API currently uses this bridge directly for the `open_url` MVP smoke task; full Pi AgentSession integration remains the next runtime step.
 - The bridge is intentionally minimal until task-specific Pi MCP allowlists are implemented.
-- noVNC now has an MVP bearer/basic auth gate, but TLS, sessions, rate limiting, CSRF protection, and idle timeout are still out of scope in this slice; keep the loopback host bind unless a trusted TLS ingress provides those controls.
+- noVNC is directly reachable on the loopback-published port in this slice; keep the loopback host bind.
 - Opera's proprietary redistribution/licensing remains a release gate documented in the architecture notes.
 
 ## Runtime hardening defaults

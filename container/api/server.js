@@ -10,7 +10,6 @@ const { spawn } = require('child_process');
 
 const HOST = process.env.API_HOST || '0.0.0.0';
 const PORT = Number(process.env.API_PORT || 8080);
-const TOKEN = process.env.PI_COMPUTER_API_TOKEN || process.env.API_TOKEN || 'local-dev-token-change-me';
 const STORE_DIR = process.env.PI_COMPUTER_TASK_STORE || '/home/pi/pi-computer/tasks';
 const MAX_BODY = Number(process.env.API_MAX_BODY_BYTES || 16384);
 const DEFAULT_TIMEOUT = Number(process.env.TASK_TIMEOUT_SECONDS || 60);
@@ -71,11 +70,6 @@ function send(res, status, body, headers = {}) {
 }
 
 function sendError(res, status, message) { send(res, status, { error: { message } }); }
-
-function isAuthorized(req) {
-  const auth = req.headers.authorization || '';
-  return auth === `Bearer ${TOKEN}`;
-}
 
 async function readJson(req) {
   let size = 0;
@@ -216,7 +210,6 @@ async function handler(req, res) {
   if (req.method === 'GET' && url.pathname === '/healthz') {
     return send(res, 200, { ok: true, service: 'pi-computer-api', storeDir: STORE_DIR, activeTaskId });
   }
-  if (url.pathname.startsWith('/v1/') && !isAuthorized(req)) return sendError(res, 401, 'missing or invalid bearer token');
   const match = routeMatch(url.pathname);
   try {
     if (req.method === 'POST' && url.pathname === '/v1/tasks') {

@@ -8,7 +8,7 @@ This threat model covers the MVP pi-computer container: Node task API, Pi AgentS
 
 - The default deployment is single-user and single-tenant.
 - One active browser task runs per container.
-- External access is through one authenticated ingress port.
+- External access is limited to loopback-published or otherwise trusted internal API/noVNC ports unless a separate ingress is added.
 - Browser pages, downloads, screenshots, and task instructions may be hostile or sensitive.
 - A normal Docker container reduces blast radius but is not a complete sandbox for hostile tenants or browser zero-days.
 
@@ -22,8 +22,8 @@ Mitigations:
 
 - Bind x11vnc only to `127.0.0.1:5900`.
 - Do not publish host port `5900`.
-- Place noVNC/websockify behind the same authenticated TLS ingress as the API.
-- Enforce origin checks, CSRF protections, secure cookies or scoped bearer tokens, and idle timeouts.
+- Keep the published noVNC endpoint on host loopback or another trusted internal boundary.
+- If exposure broadens beyond that boundary, add TLS/auth/origin controls in a separate ingress layer.
 - Add smoke tests that fail if VNC/CDP/MCP ports are reachable externally.
 
 ### Critical: public CDP exposure
@@ -99,16 +99,16 @@ Mitigations:
 - Do not mount Docker socket or host devices.
 - Patch OS/browser dependencies and consider VM/microVM isolation for hostile workloads.
 
-### High: API authentication or authorization bypass
+### High: unintended API/noVNC exposure beyond the trusted boundary
 
-Risk: the API can start tasks in authenticated browser contexts and retrieve artifacts.
+Risk: the loopback/internal API can start tasks in authenticated browser contexts and retrieve artifacts, while noVNC exposes interactive desktop control.
 
 Mitigations:
 
-- Require authentication on all API, event, artifact, and noVNC routes.
-- Use short-lived scoped tokens or secure session cookies.
-- Separate task ownership from operator/admin abilities.
-- Rate-limit task creation and failed authentication.
+- Keep API and noVNC bound to host loopback or another trusted internal boundary by default.
+- Add separate ingress-layer auth/TLS before publishing beyond that boundary.
+- Separate task ownership from operator/admin abilities when a broader ingress is introduced.
+- Rate-limit task creation at the ingress layer if exposure broadens.
 - Cap concurrent tasks to one active task per container for MVP.
 
 ### High: Opera redistribution/licensing
