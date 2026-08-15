@@ -6,6 +6,7 @@ Opera starts inside the container on the Xvfb display with Chrome DevTools Proto
 
 ```text
 Pi / task runner
+  -> real Pi CLI (/usr/local/bin/pi)
   -> stdio browser MCP bridge (/usr/local/bin/pi-computer-browser-mcp)
       -> http://127.0.0.1:9222/json/version inside container
       -> CDP websocket on 127.0.0.1 only
@@ -27,6 +28,24 @@ No raw CDP port, MCP port, or direct browser-control API is published by `compos
 | `VNC_PORT` | `5900` | container loopback only | x11vnc backend for noVNC |
 
 Do not change `CDP_HOST` to `0.0.0.0`, add a Compose `ports` entry for `9222`, or run the browser MCP bridge as a network service unless a later trusted internal ingress design is added.
+
+## Pi harness bootstrap
+
+The container now ships the real Pi CLI (`/usr/local/bin/pi`) on Node.js 22. Pi state lives in `/home/pi/.pi/agent` on the persisted home volume.
+
+Bootstrap paths:
+
+- Compose-passed provider env vars such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and peers listed in `compose.yaml`.
+- A read-only host import mounted at `/pi-agent-import` when `PI_HARNESS_HOST_AGENT_DIR` is set; `/usr/local/bin/pi-computer-bootstrap-pi-harness` copies `auth.json`, `settings.json`, `models.json`, `sessions/`, `prompts/`, `themes/`, and `tools/` into `/home/pi/.pi/agent`.
+- Direct JSON injection for trusted automation through `PI_AUTH_JSON_B64`, `PI_SETTINGS_JSON_B64`, and `PI_MODELS_JSON_B64` when re-running the helper.
+
+Useful checks:
+
+```bash
+docker compose exec pi-computer pi --version
+docker compose exec pi-computer pi auth check --provider openai --json --no-refresh
+docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi-harness
+```
 
 ## MCP bridge
 
@@ -56,22 +75,22 @@ docker compose up --build -d
 ./scripts/smoke-cdp.sh
 ./scripts/smoke-browser-mcp.sh
 ./scripts/smoke-host-boundary.sh
-curl -sS -o /tmp/novnc-unauth -w '%{http_code}\n' http://127.0.0.1:6080/vnc.html
-curl -fsSI -H "Authorization: Bearer ${PI_COMPUTER_NOVNC_TOKEN:-local-novnc-token-change-me}" http://127.0.0.1:6080/vnc.html
+curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
+curl -fsS http://127.0.0.1:8080/healthz
 ```
 
 `smoke-host-boundary.sh` fails if Compose publishes raw CDP/VNC or if the container CDP endpoint is reachable from the host via the container network IP. It avoids assuming host `127.0.0.1:9222` is unused by unrelated local browsers.
 
 ## Limitations
 
-- The loopback-published task API currently uses this bridge directly for the `open_url` MVP smoke task; full Pi AgentSession integration remains the next runtime step.
+- The loopback-published task API currently uses this bridge directly for the `open_url` MVP smoke task; the real Pi harness is installed and auth-ready, but full supervised Pi AgentSession/task-runner cutover remains the next runtime step.
 - The bridge is intentionally minimal until task-specific Pi MCP allowlists are implemented.
 - noVNC is directly reachable on the loopback-published port in this slice; keep the loopback host bind.
 - Opera's proprietary redistribution/licensing remains a release gate documented in the architecture notes.
 
 ## Runtime hardening defaults
 
-Compose runs the desktop as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, CPU/memory limits, and a PID limit. The only default host-published ports are authenticated ingress ports bound to host loopback: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP stdio, Supervisor, and noVNC backend internals are not published.
+Compose runs the desktop as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, CPU/memory limits, and a PID limit. The only default host-published ports are loopback-bound ingress ports: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Those endpoints are currently unauthenticated in-app and rely on host/network boundaries for protection. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP stdio, Supervisor, and noVNC backend internals are not published.
 
 Writable runtime surfaces are intentionally narrow:
 
@@ -81,16 +100,12 @@ Writable runtime surfaces are intentionally narrow:
 
 Do not add host directory mounts, Docker socket mounts, `privileged: true`, `cap_add`, wildcard host binds, or raw `5900`/`9222` port mappings without a new threat-model review.
 
-## Secret and token operations
+## Pi harness secrets and log hygiene
 
-Development defaults such as `local-dev-token-change-me` and `local-novnc-token-change-me` are placeholders only. Shared or deployed environments must set unique high-entropy values for:
+The current runtime does not configure application-layer API or noVNC tokens. Keep the default host-loopback binds unless a separate trusted/internal ingress is in place, and add TLS/auth there before exposing the UI or API more broadly.
 
-- `PI_COMPUTER_API_TOKEN` for `/v1/*` task API calls;
-- `PI_COMPUTER_NOVNC_TOKEN` for scripted noVNC bearer access;
-- `PI_COMPUTER_NOVNC_USERNAME` and `PI_COMPUTER_NOVNC_PASSWORD` for browser basic auth.
+Pi/provider credentials remain sensitive. Keep real provider API keys, imported Pi `auth.json`, cookies, and other browser/session secrets out of the repository, shell history, screenshots, issue text, and committed Compose overrides.
 
-Keep real token values out of the repository, shell history, screenshots, issue text, and Compose override files that may be committed. Prefer an untracked `.env`, a local secret manager, or orchestrator-provided secrets. Rotate tokens after accidental disclosure, after operator offboarding, and on any move from local loopback-only use to a shared ingress. API and noVNC tokens are intentionally separate so either control plane can be rotated independently.
-
-Log expectations: services must not print Authorization headers, bearer token values, basic-auth passwords, cookies, CDP websocket URLs, or page secrets. Smoke checks scan recent Compose logs for configured token values, but that is not a substitute for reviewing new logging code.
+Log expectations: services must not print Authorization headers, cookies, provider API keys, Pi auth material, CDP websocket URLs, or page secrets. Smoke checks scan recent Compose logs for obvious secret values, but that is not a substitute for reviewing new logging code.
 
 Sandbox compatibility note: Opera currently retains the `--no-sandbox` flag because the tested Docker runtime blocks both the setuid sandbox under `no-new-privileges` and unprivileged namespace sandbox startup. This is a known residual risk, offset only partially by non-root execution, dropped capabilities, read-only rootfs, unpublished raw control ports, and Docker isolation. Revisit before production or hostile browsing use.

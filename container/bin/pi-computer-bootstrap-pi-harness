@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+home_dir="${HOME:-/home/pi}"
+agent_dir="${PI_CODING_AGENT_DIR:-${home_dir}/.pi/agent}"
+import_dir="${PI_BOOTSTRAP_AGENT_IMPORT_DIR:-}"
+mkdir -p "${agent_dir}" "${agent_dir}/sessions"
+chmod 700 "${agent_dir}" 2>/dev/null || true
+
+copied=()
+
+validate_json() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import json
+import pathlib
+import sys
+json.loads(pathlib.Path(sys.argv[1]).read_text())
+PY
+}
+
+copy_file() {
+  local src="$1"
+  local dest="$2"
+  local label="$3"
+  [ -f "$src" ] || return 0
+  mkdir -p "$(dirname "$dest")"
+  cp "$src" "$dest"
+  chmod 600 "$dest" 2>/dev/null || true
+  validate_json "$dest"
+  copied+=("$label")
+}
+
+copy_dir() {
+  local src="$1"
+  local dest="$2"
+  local label="$3"
+  [ -d "$src" ] || return 0
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$dest")"
+  cp -a "$src" "$dest"
+  copied+=("$label")
+}
+
+write_b64_json() {
+  local env_name="$1"
+  local dest_name="$2"
+  local value="${!env_name:-}"
+  [ -n "$value" ] || return 0
+  mkdir -p "$agent_dir"
+  printf '%s' "$value" | base64 -d > "${agent_dir}/${dest_name}"
+  chmod 600 "${agent_dir}/${dest_name}" 2>/dev/null || true
+  validate_json "${agent_dir}/${dest_name}"
+  copied+=("env:${dest_name}")
+}
+
+if [ -n "$import_dir" ] && [ -d "$import_dir" ] && [ -n "$(find "$import_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+  copy_file "$import_dir/auth.json" "$agent_dir/auth.json" "import:auth.json"
+  copy_file "$import_dir/settings.json" "$agent_dir/settings.json" "import:settings.json"
+  copy_file "$import_dir/models.json" "$agent_dir/models.json" "import:models.json"
+  copy_dir "$import_dir/sessions" "$agent_dir/sessions" "import:sessions/"
+  copy_dir "$import_dir/prompts" "$agent_dir/prompts" "import:prompts/"
+  copy_dir "$import_dir/themes" "$agent_dir/themes" "import:themes/"
+  copy_dir "$import_dir/tools" "$agent_dir/tools" "import:tools/"
+fi
+
+write_b64_json PI_AUTH_JSON_B64 auth.json
+write_b64_json PI_SETTINGS_JSON_B64 settings.json
+write_b64_json PI_MODELS_JSON_B64 models.json
+
+pi_version="unavailable"
+if command -v pi >/dev/null 2>&1; then
+  pi_version="$(pi --version 2>/dev/null | head -n 1 || true)"
+fi
+
+echo "pi harness bootstrap: agent_dir=${agent_dir} import_dir=${import_dir:-none} pi=${pi_version} copied=${#copied[@]}"
+if [ "${#copied[@]}" -gt 0 ]; then
+  printf 'pi harness bootstrap copied: %s\n' "${copied[*]}"
+fi

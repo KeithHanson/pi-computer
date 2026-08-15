@@ -3,6 +3,9 @@ set -euo pipefail
 fail() { echo "healthcheck failed: $*" >&2; exit 1; }
 xdpyinfo -display "${DISPLAY:-:1}" >/dev/null 2>&1 || fail "X display ${DISPLAY:-:1} not ready"
 pgrep -u "$(id -u)" -x fluxbox >/dev/null || fail "fluxbox not running"
+command -v pi >/dev/null 2>&1 || fail "pi harness binary not installed"
+pi --version >/dev/null 2>&1 || fail "pi harness binary not runnable"
+[ -d "${PI_CODING_AGENT_DIR:-${HOME:-/home/pi}/.pi/agent}" ] || fail "pi harness agent directory missing"
 pgrep -u "$(id -u)" -x socat >/dev/null || fail "VNC IPv4 loopback relay not running"
 pgrep -u "$(id -u)" -f 'websockify|novnc_proxy' >/dev/null || fail "noVNC/websockify backend not running"
 pgrep -u "$(id -u)" -f '/opt/pi-computer/novnc-gate/server.js' >/dev/null || fail "noVNC loopback proxy not running"
