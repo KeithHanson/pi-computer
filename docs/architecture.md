@@ -28,8 +28,9 @@ Opera runs inside the X display as the non-root browser user with:
 
 - a dedicated `--user-data-dir` per task by default;
 - CDP bound only to loopback or an equivalent private internal boundary;
-- Chromium sandbox enabled;
-- adequate `/dev/shm` supplied by Docker/Compose rather than `--no-sandbox` workarounds.
+- adequate `/dev/shm` supplied by Docker/Compose.
+
+Target state is Chromium sandbox enabled without `--no-sandbox`. Current local Docker validation keeps `no-new-privileges`; Opera fails both setuid-sandbox and namespace-sandbox startup under that runtime, so the compatibility `--no-sandbox` flag remains a documented residual risk until a sandbox-compatible runtime profile is available.
 
 ### Process graph
 
