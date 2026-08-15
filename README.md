@@ -148,10 +148,19 @@ export PI_COMPUTER_API_TOKEN=local-dev-token-change-me
 
 The API is intentionally declarative. It accepts an `open_url` browser task and does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or Pi CLI arguments.
 
+
+### Runtime hardening baseline
+
+Default Compose publishes only loopback-bound authenticated ingress ports: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP, Supervisor, and noVNC backend internals are not host-published.
+
+The container runs as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, memory/CPU limits, and a PID limit. Change placeholder local tokens (`PI_COMPUTER_API_TOKEN`, `PI_COMPUTER_NOVNC_TOKEN`, `PI_COMPUTER_NOVNC_USERNAME`, `PI_COMPUTER_NOVNC_PASSWORD`) before shared use, and never commit real token values.
+
+Run `./scripts/smoke-hardening.sh` after startup to verify runtime isolation, unpublished raw ports, sudo absence, compatibility sandbox flag reporting, and log token redaction expectations.
+
 ### Security notes for the MVP
 
 The container is intended for local development only. noVNC now has an MVP application-level auth gate, and Compose still binds it to host loopback by default. Change the default `PI_COMPUTER_NOVNC_TOKEN` before sharing access and place the endpoint behind TLS for any non-local deployment. Direct VNC uses `-nopw` only because x11vnc runs per connection in inetd mode without its own TCP listener, a TCP4-only relay listens on container IPv4 loopback, container IPv6 is disabled by Compose, and VNC is not exposed by Compose.
 
-Opera is launched as the non-root `pi` user with CDP constrained to container loopback. It currently uses `--no-sandbox` because this Docker runtime cannot initialize Opera's Chromium sandbox with `no-new-privileges`; a later hardening slice should document the minimum required runtime exception rather than publishing raw browser-control ports.
+Opera is launched as the non-root `pi` user with CDP constrained to container loopback. This runtime keeps `no-new-privileges`; current Opera fails to initialize its setuid/user-namespace sandbox under that setting, so the existing `--no-sandbox` compatibility flag remains a residual risk until a sandbox-compatible runtime profile is available.
 
 See [`docs/protected-opera-cdp-mcp.md`](docs/protected-opera-cdp-mcp.md) for the CDP/MCP topology, environment variables, smoke scripts, and limitations.

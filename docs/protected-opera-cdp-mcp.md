@@ -54,7 +54,8 @@ docker compose up --build -d
 ./scripts/smoke-cdp.sh
 ./scripts/smoke-browser-mcp.sh
 ./scripts/smoke-host-boundary.sh
-curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
+curl -sS -o /tmp/novnc-unauth -w '%{http_code}\n' http://127.0.0.1:6080/vnc.html
+curl -fsSI -H "Authorization: Bearer ${PI_COMPUTER_NOVNC_TOKEN:-local-novnc-token-change-me}" http://127.0.0.1:6080/vnc.html
 ```
 
 `smoke-host-boundary.sh` fails if Compose publishes raw CDP/VNC or if the container CDP endpoint is reachable from the host via the container network IP. It avoids assuming host `127.0.0.1:9222` is unused by unrelated local browsers.
@@ -63,5 +64,31 @@ curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 
 - The authenticated task API currently uses this bridge directly for the `open_url` MVP smoke task; full Pi AgentSession integration remains the next runtime step.
 - The bridge is intentionally minimal until task-specific Pi MCP allowlists are implemented.
-- noVNC still lacks authentication/TLS in this slice; keep the loopback host bind.
+- noVNC now has an MVP bearer/basic auth gate, but TLS, sessions, rate limiting, CSRF protection, and idle timeout are still out of scope in this slice; keep the loopback host bind unless a trusted TLS ingress provides those controls.
 - Opera's proprietary redistribution/licensing remains a release gate documented in the architecture notes.
+
+## Runtime hardening defaults
+
+Compose runs the desktop as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, CPU/memory limits, and a PID limit. The only default host-published ports are authenticated ingress ports bound to host loopback: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP stdio, Supervisor, and noVNC backend internals are not published.
+
+Writable runtime surfaces are intentionally narrow:
+
+- `/home/pi` via the `pi-computer-home` volume for the non-root home, Opera profile, downloads, and task store;
+- `/tmp`, `/run`, `/var/log/pi-computer`, and `/var/run/pi-computer` as bounded tmpfs mounts;
+- Docker-managed `/dev/shm` sized by `shm_size` for browser stability.
+
+Do not add host directory mounts, Docker socket mounts, `privileged: true`, `cap_add`, wildcard host binds, or raw `5900`/`9222` port mappings without a new threat-model review.
+
+## Secret and token operations
+
+Development defaults such as `local-dev-token-change-me` and `local-novnc-token-change-me` are placeholders only. Shared or deployed environments must set unique high-entropy values for:
+
+- `PI_COMPUTER_API_TOKEN` for `/v1/*` task API calls;
+- `PI_COMPUTER_NOVNC_TOKEN` for scripted noVNC bearer access;
+- `PI_COMPUTER_NOVNC_USERNAME` and `PI_COMPUTER_NOVNC_PASSWORD` for browser basic auth.
+
+Keep real token values out of the repository, shell history, screenshots, issue text, and Compose override files that may be committed. Prefer an untracked `.env`, a local secret manager, or orchestrator-provided secrets. Rotate tokens after accidental disclosure, after operator offboarding, and on any move from local loopback-only use to a shared ingress. API and noVNC tokens are intentionally separate so either control plane can be rotated independently.
+
+Log expectations: services must not print Authorization headers, bearer token values, basic-auth passwords, cookies, CDP websocket URLs, or page secrets. Smoke checks scan recent Compose logs for configured token values, but that is not a substitute for reviewing new logging code.
+
+Sandbox compatibility note: Opera currently retains the `--no-sandbox` flag because the tested Docker runtime blocks both the setuid sandbox under `no-new-privileges` and unprivileged namespace sandbox startup. This is a known residual risk, offset only partially by non-root execution, dropped capabilities, read-only rootfs, unpublished raw control ports, and Docker isolation. Revisit before production or hostile browsing use.

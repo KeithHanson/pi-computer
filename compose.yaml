@@ -5,7 +5,19 @@ services:
       dockerfile: Dockerfile
     image: pi-computer:local
     init: true
+    user: "1000:1000"
+    read_only: true
     shm_size: "1gb"
+    pids_limit: 512
+    mem_limit: "2g"
+    cpus: "2.0"
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
+      - /run:rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0755
+      - /var/log/pi-computer:rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0755
+      - /var/run/pi-computer:rw,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=0755
     ports:
       - "${NOVNC_HOST_BIND:-127.0.0.1}:${NOVNC_HOST_PORT:-6080}:6080"
       - "${API_HOST_BIND:-127.0.0.1}:${API_HOST_PORT:-8080}:8080"

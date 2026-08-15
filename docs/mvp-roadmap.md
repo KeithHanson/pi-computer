@@ -63,7 +63,7 @@ This roadmap maps the current Bead plan into an implementation order that preser
 Before an MVP release:
 
 - Opera licensing/redistribution path is documented.
-- The image does not require root, passwordless sudo, `--privileged`, Docker socket, or `--no-sandbox`.
+- The image does not require root, passwordless sudo, `--privileged`, Docker socket, or `--no-sandbox` (currently unmet for Opera sandbox compatibility under `no-new-privileges`; keep as a release gate).
 - Only the authenticated ingress port is published by default.
 - Raw VNC, CDP, MCP, and Supervisor ports are private.
 - `AgentSession` integration is proven or a documented fallback preserves the same boundaries.
