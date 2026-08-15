@@ -42,7 +42,8 @@ tini
     ├── dbus/session helpers as needed
     ├── openbox (or xfce4-session fallback)
     ├── x11vnc bound to 127.0.0.1:5900
-    ├── websockify/noVNC bound to loopback
+    ├── websockify/noVNC backend bound to loopback
+    ├── authenticated noVNC operator access gate
     ├── Opera launcher/readiness helper
     ├── MCP browser bridge bound to stdio or loopback only
     ├── Node.js API/task worker
@@ -58,7 +59,7 @@ Default published port: one authenticated HTTP(S) ingress, initially `8080` for 
 Internal-only ports/boundaries:
 
 - `127.0.0.1:5900` x11vnc only;
-- loopback websockify/noVNC backend only;
+- loopback websockify/noVNC backend only, fronted by an authenticated noVNC gate;
 - loopback/private CDP only;
 - loopback or stdio MCP only;
 - Node API may bind loopback if fronted by an internal proxy.
@@ -67,7 +68,7 @@ The ingress routes:
 
 - `/v1/*` to the Node API;
 - `/events/*` or task-scoped SSE/WebSocket endpoint to the API;
-- `/novnc/*` to authenticated noVNC assets/websocket proxy.
+- `/novnc/*` or the local `6080` operator port to authenticated noVNC assets/websocket proxy.
 
 No default deployment publishes raw VNC, CDP, MCP, or Supervisor control ports.
 
