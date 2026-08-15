@@ -43,6 +43,7 @@ The image includes `/usr/local/bin/pi-computer-healthcheck`, also configured as 
 - unauthenticated noVNC `/vnc.html` serves the UI.
 - Opera process is running.
 - Opera CDP `/json/version` responds on container loopback and is not wildcard-bound.
+- The browser bridge can complete a non-mutating websocket readiness probe across the Runtime and Page CDP domains against the first ready page target.
 
 ## Loopback access
 

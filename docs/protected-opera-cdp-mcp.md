@@ -34,6 +34,7 @@ Do not change `CDP_HOST` to `0.0.0.0`, add a Compose `ports` entry for `9222`, o
 
 - `browser.version` reads CDP `/json/version`.
 - `browser.targets` reads CDP `/json/list`.
+- `browser.probe` performs a non-mutating websocket readiness check across the Runtime and Page CDP domains by reading `window.location.href` and `Page.getNavigationHistory` from the first ready page target.
 - `browser.navigate` navigates the first page target to an `http://`, `https://`, or `about:` URL.
 
 The bridge caps JSON result size through `BROWSER_MCP_MAX_RESULT_BYTES` (default `131072`). It is not a public API and must be launched by Pi/task-runner code with an allowlist.
@@ -45,6 +46,7 @@ The Docker healthcheck now verifies:
 - Xvfb/fluxbox/noVNC/VNC are ready.
 - Opera is running.
 - CDP `/json/version` responds on `CDP_HOST:CDP_PORT`.
+- The browser bridge can complete a non-mutating websocket readiness probe across the Runtime and Page CDP domains against the first ready page target.
 - CDP and VNC do not listen on wildcard interfaces.
 
 Repo smoke scripts:

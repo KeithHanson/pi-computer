@@ -163,12 +163,14 @@ async function runTask(task) {
     await persist(task); await emitEvent(task, 'state', { state: task.state });
     if (task.cancelRequested) throw new Error('cancelled before browser work started');
     const timeoutMs = task.request.timeoutSeconds * 1000;
+    const readiness = await callBridge('tools/call', { name: 'browser.probe', arguments: {} }, timeoutMs);
+    await emitEvent(task, 'browser.probe', { ok: true });
     const version = await callBridge('tools/call', { name: 'browser.version', arguments: {} }, timeoutMs);
     await emitEvent(task, 'browser.version', { ok: true });
     const navigation = await callBridge('tools/call', { name: 'browser.navigate', arguments: { url: task.request.startUrl } }, timeoutMs);
     await emitEvent(task, 'browser.navigate', { url: task.request.startUrl });
     const targets = await callBridge('tools/call', { name: 'browser.targets', arguments: {} }, timeoutMs);
-    const artifact = await writeArtifact(task, 'browser-observation.json', { request: task.request, version, navigation, targets, observedAt: now() });
+    const artifact = await writeArtifact(task, 'browser-observation.json', { request: task.request, readiness, version, navigation, targets, observedAt: now() });
     task.result = { summary: `Opened ${task.request.startUrl} in Opera through the internal browser MCP/CDP bridge.`, artifactIds: [artifact.artifactId] };
     task.state = task.cancelRequested ? 'cancelled' : 'succeeded';
   } catch (e) {

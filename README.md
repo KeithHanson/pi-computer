@@ -70,7 +70,7 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - noVNC operator access is published only on host loopback by default: `127.0.0.1:6080` (override with `NOVNC_HOST_PORT` for local port conflicts). The published endpoint is a Node.js loopback proxy; the noVNC/websockify backend listens only on container loopback.
 - A Node.js browser-task API is published on host loopback by default: `127.0.0.1:8080` (override `API_HOST_PORT`).
 - Compose allocates `1gb` `/dev/shm` for browser stability.
-- Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, loopback VNC readiness/no IPv6 VNC reachability, and CDP `/json/version` readiness without wildcard CDP binding.
+- Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, loopback VNC readiness/no IPv6 VNC reachability, CDP `/json/version`, and a non-mutating browser websocket readiness probe across the Runtime and Page CDP domains without wildcard CDP binding.
 
 ### Quick start
 
