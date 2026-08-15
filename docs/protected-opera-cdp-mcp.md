@@ -12,7 +12,7 @@ Pi / task runner
           -> Opera on Xvfb/noVNC desktop
 ```
 
-No raw CDP port, MCP port, or direct browser-control API is published by `compose.yaml`. The only default host-published port remains noVNC on `127.0.0.1:6080` from the desktop MVP.
+No raw CDP port, MCP port, or direct browser-control API is published by `compose.yaml`. The default host-published ports are loopback-only noVNC on `127.0.0.1:6080` and the authenticated Node.js task API on `127.0.0.1:8080`.
 
 ## Ports and environment
 
@@ -61,7 +61,7 @@ curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 
 ## Limitations
 
-- This is a browser-control bridge package and smoke harness, not the final authenticated task API or full Pi AgentSession integration.
+- The authenticated task API currently uses this bridge directly for the `open_url` MVP smoke task; full Pi AgentSession integration remains the next runtime step.
 - The bridge is intentionally minimal until task-specific Pi MCP allowlists are implemented.
 - noVNC still lacks authentication/TLS in this slice; keep the loopback host bind.
 - Opera's proprietary redistribution/licensing remains a release gate documented in the architecture notes.
