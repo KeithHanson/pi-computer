@@ -6,8 +6,9 @@
 | --- | --- | --- |
 | `127.0.0.1:6080` on host -> `6080/tcp` in container | Localhost only by default | noVNC web UI and websocket proxy |
 | `127.0.0.1:5900` inside container only | Not published by Compose | x11vnc backend for noVNC |
+| `127.0.0.1:9222` inside container only | Not published by Compose | Opera CDP for the stdio browser MCP bridge |
 
-Compose intentionally does not publish direct VNC and disables container IPv6. x11vnc runs per connection in inetd mode without opening its own TCP listener, while the VNC relay uses TCP4 on `127.0.0.1:5900` only. Use noVNC at `http://127.0.0.1:6080/vnc.html` for local access.
+Compose intentionally does not publish direct VNC, CDP, MCP, or direct browser-control ports and disables container IPv6. x11vnc runs per connection in inetd mode without opening its own TCP listener, while the VNC relay uses TCP4 on `127.0.0.1:5900` only. Opera CDP binds to container loopback at `127.0.0.1:9222`. Use noVNC at `http://127.0.0.1:6080/vnc.html` for local access.
 
 ## Volumes
 
@@ -37,10 +38,11 @@ The image includes `/usr/local/bin/pi-computer-healthcheck`, also configured as 
 - The VNC relay is running, accepts IPv4 loopback TCP connections, and does not accept IPv6 loopback connections or expose `:::5900`.
 - noVNC/websockify is running and serves `/vnc.html` locally.
 - Opera process is running.
+- Opera CDP `/json/version` responds on container loopback and is not wildcard-bound.
 
 ## Current limitations
 
 - no noVNC authentication or TLS yet; keep the default loopback host bind for local-only access.
-- no public CDP/MCP/task API port in this MVP.
-- Opera starts with `--no-sandbox` for container compatibility; this should be revisited when a hardened browser sandbox profile is designed.
+- no public CDP/MCP/task API port in this MVP; the included browser MCP smoke bridge uses stdio only.
+- Opera CDP is intended for internal Pi/browser automation only; do not publish port `9222` by default.
 - The Opera apt repository is used at build time, so builds require external network access and trust in Opera's signed Debian repository.

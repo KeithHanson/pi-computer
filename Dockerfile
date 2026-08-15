@@ -9,6 +9,9 @@ ARG GID=1000
 ENV DISPLAY=:1 \
     NOVNC_PORT=6080 \
     VNC_PORT=5900 \
+    CDP_HOST=127.0.0.1 \
+    CDP_PORT=9222 \
+    BROWSER_MCP_TRANSPORT=stdio \
     SCREEN_WIDTH=1280 \
     SCREEN_HEIGHT=800 \
     SCREEN_DEPTH=24 \
@@ -20,6 +23,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates curl wget gnupg apt-transport-https \
       dumb-init supervisor procps net-tools netcat-openbsd socat \
+      python3 python3-websocket \
       xvfb x11-utils x11vnc fluxbox dbus-x11 gsettings-desktop-schemas \
       novnc websockify \
       fonts-liberation fonts-dejavu-core libasound2 libatk-bridge2.0-0 libatk1.0-0 \

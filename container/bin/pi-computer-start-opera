@@ -6,12 +6,19 @@ for _ in $(seq 1 60); do
   fi
   sleep 1
 done
-rm -f "${HOME}/.config/opera/SingletonLock" "${HOME}/.config/opera/SingletonSocket" "${HOME}/.config/opera/SingletonCookie"
+profile_dir="${OPERA_PROFILE_DIR:-${HOME}/.config/opera}"
+cdp_host="${CDP_HOST:-127.0.0.1}"
+cdp_port="${CDP_PORT:-9222}"
+mkdir -p "${profile_dir}"
+rm -f "${profile_dir}/SingletonLock" "${profile_dir}/SingletonSocket" "${profile_dir}/SingletonCookie"
 exec dbus-run-session -- /usr/bin/opera \
   --no-first-run \
   --disable-default-apps \
   --disable-dev-shm-usage=false \
   --disable-gpu \
   --no-sandbox \
-  --user-data-dir="${HOME}/.config/opera" \
+  --remote-debugging-address="${cdp_host}" \
+  --remote-debugging-port="${cdp_port}" \
+  --remote-allow-origins="http://${cdp_host}:${cdp_port}" \
+  --user-data-dir="${profile_dir}" \
   about:blank
