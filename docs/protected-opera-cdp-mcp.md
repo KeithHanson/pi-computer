@@ -6,6 +6,7 @@ Opera starts inside the container on the Xvfb display with Chrome DevTools Proto
 
 ```text
 Pi / task runner
+  -> real Pi CLI (/usr/local/bin/pi)
   -> stdio browser MCP bridge (/usr/local/bin/pi-computer-browser-mcp)
       -> http://127.0.0.1:9222/json/version inside container
       -> CDP websocket on 127.0.0.1 only
@@ -27,6 +28,24 @@ No raw CDP port, MCP port, or direct browser-control API is published by `compos
 | `VNC_PORT` | `5900` | container loopback only | x11vnc backend for noVNC |
 
 Do not change `CDP_HOST` to `0.0.0.0`, add a Compose `ports` entry for `9222`, or run the browser MCP bridge as a network service unless a later trusted internal ingress design is added.
+
+## Pi harness bootstrap
+
+The container now ships the real Pi CLI (`/usr/local/bin/pi`) on Node.js 22. Pi state lives in `/home/pi/.pi/agent` on the persisted home volume.
+
+Bootstrap paths:
+
+- Compose-passed provider env vars such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and peers listed in `compose.yaml`.
+- A read-only host import mounted at `/pi-agent-import` when `PI_HARNESS_HOST_AGENT_DIR` is set; `/usr/local/bin/pi-computer-bootstrap-pi-harness` copies `auth.json`, `settings.json`, `models.json`, `sessions/`, `prompts/`, `themes/`, and `tools/` into `/home/pi/.pi/agent`.
+- Direct JSON injection for trusted automation through `PI_AUTH_JSON_B64`, `PI_SETTINGS_JSON_B64`, and `PI_MODELS_JSON_B64` when re-running the helper.
+
+Useful checks:
+
+```bash
+docker compose exec pi-computer pi --version
+docker compose exec pi-computer pi auth check --provider openai --json --no-refresh
+docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi-harness
+```
 
 ## MCP bridge
 
@@ -64,7 +83,7 @@ curl -fsSI -H "Authorization: Bearer ${PI_COMPUTER_NOVNC_TOKEN:-local-novnc-toke
 
 ## Limitations
 
-- The loopback-published task API currently uses this bridge directly for the `open_url` MVP smoke task; full Pi AgentSession integration remains the next runtime step.
+- The loopback-published task API currently uses this bridge directly for the `open_url` MVP smoke task; the real Pi harness is installed and auth-ready, but full supervised Pi AgentSession/task-runner cutover remains the next runtime step.
 - The bridge is intentionally minimal until task-specific Pi MCP allowlists are implemented.
 - noVNC is directly reachable on the loopback-published port in this slice; keep the loopback host bind.
 - Opera's proprietary redistribution/licensing remains a release gate documented in the architecture notes.

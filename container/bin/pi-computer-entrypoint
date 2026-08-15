@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+/usr/local/bin/pi-computer-bootstrap-pi-harness
+exec "$@"

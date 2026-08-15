@@ -23,6 +23,10 @@ services:
       - "${API_HOST_BIND:-127.0.0.1}:${API_HOST_PORT:-8080}:8080"
     volumes:
       - pi-computer-home:/home/pi
+      - type: bind
+        source: ${PI_HARNESS_HOST_AGENT_DIR:-./container/pi-agent-import-empty}
+        target: /pi-agent-import
+        read_only: true
     environment:
       SCREEN_WIDTH: "1280"
       SCREEN_HEIGHT: "800"
@@ -36,6 +40,23 @@ services:
       API_HOST: "0.0.0.0"
       API_PORT: "8080"
       PI_COMPUTER_TASK_STORE: "/home/pi/pi-computer/tasks"
+      PI_BOOTSTRAP_AGENT_IMPORT_DIR: "/pi-agent-import"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      PI_PROVIDER: ${PI_PROVIDER:-}
+      PI_MODEL: ${PI_MODEL:-}
     security_opt:
       - no-new-privileges:true
     sysctls:

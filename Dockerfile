@@ -5,6 +5,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG USERNAME=pi
 ARG UID=1000
 ARG GID=1000
+ARG NODE_VERSION=22.23.2
+ARG PI_CODING_AGENT_VERSION=0.84.2
 
 ENV DISPLAY=:1 \
     NOVNC_PORT=6080 \
@@ -25,25 +27,29 @@ ENV DISPLAY=:1 \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-      ca-certificates curl wget gnupg apt-transport-https \
+      ca-certificates curl wget gnupg apt-transport-https xz-utils \
       dumb-init supervisor procps net-tools netcat-openbsd socat \
-      nodejs \
       python3 python3-websocket \
       xvfb x11-utils x11vnc fluxbox dbus-x11 gsettings-desktop-schemas \
       novnc websockify \
       fonts-liberation fonts-dejavu-core libasound2 libatk-bridge2.0-0 libatk1.0-0 \
       libcups2 libdrm2 libgbm1 libgtk-3-0 libnss3 libu2f-udev libxcomposite1 \
       libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 xdg-utils \
-    && install -d -m 0755 /etc/apt/keyrings \
+    && install -d -m 0755 /etc/apt/keyrings /usr/local/lib/node_modules \
     && wget -qO- https://deb.opera.com/archive.key | gpg --dearmor > /etc/apt/keyrings/opera.gpg \
     && echo 'deb [signed-by=/etc/apt/keyrings/opera.gpg] https://deb.opera.com/opera-stable/ stable non-free' > /etc/apt/sources.list.d/opera-stable.list \
+    && wget -qO- "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" | tar -xJ --strip-components=1 -C /usr/local \
+    && npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}" \
     && apt-get update \
     && apt-get install -y --no-install-recommends opera-stable \
     && groupadd --gid "${GID}" "${USERNAME}" \
     && useradd --uid "${UID}" --gid "${GID}" --create-home --shell /bin/bash "${USERNAME}" \
-    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/Downloads \
+    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/Downloads /home/pi/.pi/agent /pi-agent-import \
     && chown -R "${USERNAME}:${USERNAME}" /var/log/pi-computer /var/run/pi-computer /home/pi \
+    && node --version \
+    && pi --version \
     && apt-get clean \
+    && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 COPY container/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
@@ -56,5 +62,5 @@ USER pi
 WORKDIR /home/pi
 EXPOSE 6080 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=35s --retries=5 CMD ["/usr/local/bin/pi-computer-healthcheck"]
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/bin/pi-computer-entrypoint"]
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]

@@ -1,6 +1,6 @@
 # Browser task API
 
-The pi-computer container now includes a minimal Node.js task API supervised inside the desktop container. It accepts constrained browser tasks and performs the MVP browser work through the internal stdio browser MCP bridge (`/usr/local/bin/pi-computer-browser-mcp`), which in turn talks to Opera CDP on container loopback.
+The pi-computer container now includes a minimal Node.js task API supervised inside the desktop container. It accepts constrained browser tasks and performs the MVP browser work through the internal stdio browser MCP bridge (`/usr/local/bin/pi-computer-browser-mcp`), which in turn talks to Opera CDP on container loopback. The real Pi CLI is also installed in the image as `/usr/local/bin/pi`, but the API has not yet switched its task execution path over to supervised Pi sessions in this slice.
 
 ## Access model
 
@@ -67,7 +67,7 @@ The browser observation artifact records the submitted request, CDP browser vers
 
 ## Limitations and next steps
 
-- The implementation proves the loopback-published API shape and real Opera/CDP/MCP browser path; it is not yet a full Pi `AgentSession` integration.
+- The implementation proves the loopback-published API shape and real Opera/CDP/MCP browser path; it is not yet a full Pi `AgentSession` integration even though the image now includes the real Pi CLI and persisted `/home/pi/.pi/agent` bootstrap path.
 - noVNC operator access is also direct on the loopback-published local development port; rely on host/network controls for non-local deployments.
 - Ephemeral profile cleanup is still provided by the existing browser/container lifecycle rather than a per-task Opera profile manager; deeper Pi SDK execution and task-scoped profile orchestration are the next runtime slice.
 

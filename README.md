@@ -66,6 +66,7 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - Xvfb virtual display, Fluxbox window manager, x11vnc, noVNC/websockify, and Opera Stable.
 - Direct VNC is relayed only on container IPv4 loopback (`127.0.0.1:5900`); x11vnc runs per connection in inetd mode without opening its own TCP listener, container IPv6 is disabled by Compose, and no VNC port is published by Compose.
 - Opera CDP is enabled on container loopback only (`127.0.0.1:9222`) for internal automation; no CDP port is published by Compose.
+- The real Pi harness CLI is installed in-container as `/usr/local/bin/pi` via `@earendil-works/pi-coding-agent`, along with Node.js 22 runtime support required by the package.
 - A minimal browser MCP-compatible smoke bridge is packaged as a stdio-only child process at `/usr/local/bin/pi-computer-browser-mcp`; no MCP port is published by Compose.
 - noVNC operator access is published only on host loopback by default: `127.0.0.1:6080` (override with `NOVNC_HOST_PORT` for local port conflicts). The published endpoint is a Node.js loopback proxy; the noVNC/websockify backend listens only on container loopback.
 - A Node.js browser-task API is published on host loopback by default: `127.0.0.1:8080` (override `API_HOST_PORT`).
@@ -79,6 +80,47 @@ Build and start locally:
 ```sh
 docker compose build pi-computer
 docker compose up -d pi-computer
+```
+
+### Pi harness auth/bootstrap
+
+The image now bootstraps Pi from two operator-friendly paths:
+
+1. **Provider env vars** passed through Compose for common providers (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, and others listed in `compose.yaml`).
+2. **Mounted Pi agent directory import** from `PI_HARNESS_HOST_AGENT_DIR`, copied into the persisted `/home/pi/.pi/agent` volume by `/usr/local/bin/pi-computer-bootstrap-pi-harness` on container start.
+
+Recommended trusted-internal first run:
+
+```sh
+mkdir -p ./.local/pi-agent
+cat > ./.local/pi-agent/settings.json <<'JSON'
+{
+  "preferredProviders": ["openai"]
+}
+JSON
+export PI_HARNESS_HOST_AGENT_DIR="$PWD/.local/pi-agent"
+export OPENAI_API_KEY='replace-me'
+docker compose up -d --build pi-computer
+```
+
+Verify the harness and auth state inside the container:
+
+```sh
+docker compose exec pi-computer pi --version
+docker compose exec pi-computer pi auth check --provider openai --json --no-refresh
+```
+
+If you already have Pi `auth.json`, `settings.json`, `models.json`, or `sessions/`, place them in `PI_HARNESS_HOST_AGENT_DIR` before startup or re-run the bootstrap helper after updating the mounted directory:
+
+```sh
+docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi-harness
+```
+
+For ad hoc bootstrap without a host mount, you can inject JSON payloads directly (useful for trusted internal automation):
+
+```sh
+docker compose exec -e PI_SETTINGS_JSON_B64="$(base64 -w0 ./.local/pi-agent/settings.json)" pi-computer \
+  /usr/local/bin/pi-computer-bootstrap-pi-harness
 ```
 
 Watch startup and health:
@@ -125,6 +167,8 @@ curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 curl -fsS http://127.0.0.1:8080/healthz
 ./scripts/smoke-api.sh
 ./scripts/smoke-novnc-auth.sh
+./scripts/smoke-pi-harness.sh
+
 docker compose port pi-computer 6080
 # These should return nothing because raw VNC and CDP are intentionally not published:
 docker compose port pi-computer 5900 || true
@@ -140,6 +184,10 @@ See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, req
 ```
 
 The API is intentionally declarative. It accepts an `open_url` browser task and does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or Pi CLI arguments.
+
+## Current Pi integration boundary
+
+The real Pi harness is now installed and operator-authenticatable inside the container, but the supervised `/v1/*` browser task API still drives the repo-local stdio browser bridge directly for this slice. That keeps the existing noVNC/API/raw-port boundaries intact while making Pi available for interactive operator use, future task-runner cutover, and in-container auth/bootstrap validation.
 
 
 ### Runtime hardening baseline
