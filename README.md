@@ -192,11 +192,11 @@ The real Pi harness is now installed and operator-authenticatable inside the con
 
 ### Runtime hardening baseline
 
-Default Compose publishes only loopback-bound authenticated ingress ports: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP, Supervisor, and noVNC backend internals are not host-published.
+Default Compose publishes only loopback-bound ingress ports: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Those endpoints are currently unauthenticated at the application layer and are intended for trusted local/internal use only. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP, Supervisor, and noVNC backend internals are not host-published.
 
-The container runs as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, memory/CPU limits, and a PID limit. Change placeholder local tokens (`PI_COMPUTER_API_TOKEN`, `PI_COMPUTER_NOVNC_TOKEN`, `PI_COMPUTER_NOVNC_USERNAME`, `PI_COMPUTER_NOVNC_PASSWORD`) before shared use, and never commit real token values.
+The container runs as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, memory/CPU limits, and a PID limit. There is no built-in API/noVNC bearer-token or basic-auth gate in the current runtime; if you need broader exposure, add TLS/auth at a separate ingress instead of changing the default loopback binds.
 
-Run `./scripts/smoke-hardening.sh` after startup to verify runtime isolation, unpublished raw ports, sudo absence, compatibility sandbox flag reporting, and log token redaction expectations.
+Run `./scripts/smoke-hardening.sh` after startup to verify runtime isolation, unpublished raw ports, sudo absence, compatibility sandbox flag reporting, and basic secret-redaction expectations for recent logs.
 
 ### Security notes for the MVP
 
