@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+port="${VNC_PORT:-5900}"
+exec /usr/bin/socat "TCP4-LISTEN:${port},bind=127.0.0.1,reuseaddr,fork" EXEC:/usr/local/bin/pi-computer-vnc-session

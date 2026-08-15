@@ -16,9 +16,11 @@ services:
       SCREEN_DEPTH: "24"
       NOVNC_PORT: "6080"
       VNC_PORT: "5900"
-      VNC_LISTEN: "127.0.0.1"
     security_opt:
       - no-new-privileges:true
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
+      net.ipv6.conf.default.disable_ipv6: "1"
     restart: unless-stopped
 
 volumes:

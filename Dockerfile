@@ -9,7 +9,6 @@ ARG GID=1000
 ENV DISPLAY=:1 \
     NOVNC_PORT=6080 \
     VNC_PORT=5900 \
-    VNC_LISTEN=127.0.0.1 \
     SCREEN_WIDTH=1280 \
     SCREEN_HEIGHT=800 \
     SCREEN_DEPTH=24 \
@@ -20,7 +19,7 @@ ENV DISPLAY=:1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates curl wget gnupg apt-transport-https \
-      dumb-init supervisor procps netcat-openbsd \
+      dumb-init supervisor procps net-tools netcat-openbsd socat \
       xvfb x11-utils x11vnc fluxbox dbus-x11 gsettings-desktop-schemas \
       novnc websockify \
       fonts-liberation fonts-dejavu-core libasound2 libatk-bridge2.0-0 libatk1.0-0 \
