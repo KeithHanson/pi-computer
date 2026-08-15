@@ -8,6 +8,10 @@ ARG GID=1000
 
 ENV DISPLAY=:1 \
     NOVNC_PORT=6080 \
+    NOVNC_BACKEND_PORT=6081 \
+    PI_COMPUTER_NOVNC_TOKEN=local-novnc-token-change-me \
+    PI_COMPUTER_NOVNC_USERNAME=operator \
+    PI_COMPUTER_NOVNC_PASSWORD=local-novnc-token-change-me \
     VNC_PORT=5900 \
     CDP_HOST=127.0.0.1 \
     CDP_PORT=9222 \
@@ -49,7 +53,8 @@ RUN apt-get update \
 COPY container/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 COPY container/bin/ /usr/local/bin/
 COPY container/api/ /opt/pi-computer/api/
-RUN chmod +x /usr/local/bin/pi-computer-* /opt/pi-computer/api/server.js
+COPY container/novnc-gate/ /opt/pi-computer/novnc-gate/
+RUN chmod +x /usr/local/bin/pi-computer-* /opt/pi-computer/api/server.js /opt/pi-computer/novnc-gate/server.js
 
 USER pi
 WORKDIR /home/pi
