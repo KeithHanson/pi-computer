@@ -54,7 +54,8 @@ docker compose up --build -d
 ./scripts/smoke-cdp.sh
 ./scripts/smoke-browser-mcp.sh
 ./scripts/smoke-host-boundary.sh
-curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
+curl -sS -o /tmp/novnc-unauth -w '%{http_code}\n' http://127.0.0.1:6080/vnc.html
+curl -fsSI -H "Authorization: Bearer ${PI_COMPUTER_NOVNC_TOKEN:-local-novnc-token-change-me}" http://127.0.0.1:6080/vnc.html
 ```
 
 `smoke-host-boundary.sh` fails if Compose publishes raw CDP/VNC or if the container CDP endpoint is reachable from the host via the container network IP. It avoids assuming host `127.0.0.1:9222` is unused by unrelated local browsers.
@@ -63,7 +64,7 @@ curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 
 - The authenticated task API currently uses this bridge directly for the `open_url` MVP smoke task; full Pi AgentSession integration remains the next runtime step.
 - The bridge is intentionally minimal until task-specific Pi MCP allowlists are implemented.
-- noVNC still lacks authentication/TLS in this slice; keep the loopback host bind.
+- noVNC now has an MVP bearer/basic auth gate, but TLS, sessions, rate limiting, CSRF protection, and idle timeout are still out of scope in this slice; keep the loopback host bind unless a trusted TLS ingress provides those controls.
 - Opera's proprietary redistribution/licensing remains a release gate documented in the architecture notes.
 
 ## Runtime hardening defaults
