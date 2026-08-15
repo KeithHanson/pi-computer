@@ -84,24 +84,23 @@ docker compose up -d pi-computer
 
 ### Pi harness auth/bootstrap
 
-The image now bootstraps Pi from two operator-friendly paths:
+The image now bootstraps Pi in a narrowly scoped way for browser-task validation:
 
-1. **Provider env vars** passed through Compose for common providers (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, and others listed in `compose.yaml`).
-2. **Mounted Pi agent directory import** from `PI_HARNESS_HOST_AGENT_DIR`, copied into the persisted `/home/pi/.pi/agent` volume by `/usr/local/bin/pi-computer-bootstrap-pi-harness` on container start.
+1. The image preconfigures Pi to load `pi-mcp-adapter` and points `/home/pi/.mcp.json` at the local `opera-devtools-mcp` server for browser work.
+2. For local validation, mount only a narrow host directory containing `auth.json` by setting `HOST_PI_AUTH_DIR`; `/usr/local/bin/pi-computer-bootstrap-pi` copies only that file into `/home/pi/.pi/agent` on startup.
+3. Use `.env.example` to override the bounded browser-task provider/model via `PI_HARNESS_PROVIDER`, `PI_HARNESS_MODEL`, and `PI_BROWSER_TASK_MAX_ARTICLES`.
 
-Recommended trusted-internal first run:
+Recommended local first run:
 
 ```sh
-mkdir -p ./.local/pi-agent
-cat > ./.local/pi-agent/settings.json <<'JSON'
-{
-  "preferredProviders": ["openai"]
-}
-JSON
-export PI_HARNESS_HOST_AGENT_DIR="$PWD/.local/pi-agent"
-export OPENAI_API_KEY='replace-me'
+cp ~/.pi/agent/auth.json ~/.pi/auth-export/auth.json
+cp .env.example .env
+$EDITOR .env
+
 docker compose up -d --build pi-computer
 ```
+
+Set `HOST_PI_AUTH_DIR` in `.env` to that auth-only directory. Do not mount the broader host `~/.pi/agent` directory into the container.
 
 Verify the harness and auth state inside the container:
 
@@ -110,17 +109,10 @@ docker compose exec pi-computer pi --version
 docker compose exec pi-computer pi auth check --provider openai --json --no-refresh
 ```
 
-If you already have Pi `auth.json`, `settings.json`, `models.json`, or `sessions/`, place them in `PI_HARNESS_HOST_AGENT_DIR` before startup or re-run the bootstrap helper after updating the mounted directory:
+If you update the mounted auth-only directory, re-run bootstrap with:
 
 ```sh
-docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi-harness
-```
-
-For ad hoc bootstrap without a host mount, you can inject JSON payloads directly (useful for trusted internal automation):
-
-```sh
-docker compose exec -e PI_SETTINGS_JSON_B64="$(base64 -w0 ./.local/pi-agent/settings.json)" pi-computer \
-  /usr/local/bin/pi-computer-bootstrap-pi-harness
+docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi
 ```
 
 Watch startup and health:
@@ -177,13 +169,23 @@ docker compose port pi-computer 9222 || true
 
 ### Browser task API
 
-See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, request/response shapes, lifecycle states, SSE events, artifact storage, and MVP limitations. The smoke path is:
+See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, request/response shapes, lifecycle states, SSE events, artifact storage, and Pi bootstrap details. The smoke path is:
 
 ```sh
 ./scripts/smoke-api.sh
 ```
 
-The API is intentionally declarative. It accepts an `open_url` browser task and does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or Pi CLI arguments.
+The API is intentionally declarative. It accepts a simple `open_url` smoke task plus a bounded `news_browse_summary` task that routes a human-English instruction through the real Pi harness with `pi-mcp-adapter` and the local Opera browser MCP path. It does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or arbitrary Pi CLI arguments.
+
+For local validation with existing Pi authentication, copy only `auth.json` into a narrow host directory and point `.env` at it:
+
+```sh
+cp ~/.pi/agent/auth.json ~/.pi/auth-export/auth.json
+cp .env.example .env
+$EDITOR .env
+```
+
+Set `HOST_PI_AUTH_DIR` to that auth-only directory. Do not mount the broader host `~/.pi/agent` directory into the container.
 
 ## Current Pi integration boundary
 
@@ -194,7 +196,7 @@ The real Pi harness is now installed and operator-authenticatable inside the con
 
 Default Compose publishes only loopback-bound ingress ports: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Those endpoints are currently unauthenticated at the application layer and are intended for trusted local/internal use only. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP, Supervisor, and noVNC backend internals are not host-published.
 
-The container runs as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, memory/CPU limits, and a PID limit. There is no built-in API/noVNC bearer-token or basic-auth gate in the current runtime; if you need broader exposure, add TLS/auth at a separate ingress instead of changing the default loopback binds.
+The container runs as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, memory/CPU limits, and a PID limit. There is no built-in API/noVNC bearer-token or basic-auth gate in the current runtime; if you need broader exposure, add TLS/auth at a separate ingress instead of changing the default loopback binds. If you use local `.env` overrides, never commit real credentials or copied Pi auth material.
 
 Run `./scripts/smoke-hardening.sh` after startup to verify runtime isolation, unpublished raw ports, sudo absence, compatibility sandbox flag reporting, and basic secret-redaction expectations for recent logs.
 

@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 /usr/local/bin/pi-computer-bootstrap-pi
-exec "$@"
+exec /usr/bin/node /opt/pi-computer/api/server.js

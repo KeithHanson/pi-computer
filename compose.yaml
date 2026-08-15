@@ -8,7 +8,7 @@ services:
     user: "1000:1000"
     read_only: true
     shm_size: "1gb"
-    pids_limit: 512
+    pids_limit: 1024
     mem_limit: "2g"
     cpus: "2.0"
     cap_drop:
@@ -24,8 +24,8 @@ services:
     volumes:
       - pi-computer-home:/home/pi
       - type: bind
-        source: ${PI_HARNESS_HOST_AGENT_DIR:-./container/pi-agent-import-empty}
-        target: /pi-agent-import
+        source: ${HOST_PI_AUTH_DIR:-./container/host-pi-agent-placeholder}
+        target: /opt/pi-host-auth
         read_only: true
     environment:
       SCREEN_WIDTH: "1280"
@@ -40,23 +40,14 @@ services:
       API_HOST: "0.0.0.0"
       API_PORT: "8080"
       PI_COMPUTER_TASK_STORE: "/home/pi/pi-computer/tasks"
-      PI_BOOTSTRAP_AGENT_IMPORT_DIR: "/pi-agent-import"
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-}
-      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      XAI_API_KEY: ${XAI_API_KEY:-}
-      GROQ_API_KEY: ${GROQ_API_KEY:-}
-      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
-      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
-      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
-      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      PI_PROVIDER: ${PI_PROVIDER:-}
-      PI_MODEL: ${PI_MODEL:-}
+      PI_HARNESS_BIN: "/usr/local/bin/pi"
+      PI_HARNESS_MCP_CONFIG: "/home/pi/.mcp.json"
+      PI_HARNESS_PROVIDER: "${PI_HARNESS_PROVIDER:-openai-codex}"
+      PI_HARNESS_MODEL: "${PI_HARNESS_MODEL:-gpt-5.4}"
+      PI_HARNESS_SESSION_DIR: "/home/pi/pi-computer/pi-sessions"
+      PI_HARNESS_MAX_INSTRUCTION_CHARS: "4000"
+      PI_BROWSER_TASK_MAX_ARTICLES: "${PI_BROWSER_TASK_MAX_ARTICLES:-5}"
+      PI_HOST_AUTH_DIR: "/opt/pi-host-auth"
     security_opt:
       - no-new-privileges:true
     sysctls:

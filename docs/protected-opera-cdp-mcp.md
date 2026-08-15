@@ -35,16 +35,16 @@ The container now ships the real Pi CLI (`/usr/local/bin/pi`) on Node.js 22. Pi 
 
 Bootstrap paths:
 
-- Compose-passed provider env vars such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and peers listed in `compose.yaml`.
-- A read-only host import mounted at `/pi-agent-import` when `PI_HARNESS_HOST_AGENT_DIR` is set; `/usr/local/bin/pi-computer-bootstrap-pi-harness` copies `auth.json`, `settings.json`, `models.json`, `sessions/`, `prompts/`, `themes/`, and `tools/` into `/home/pi/.pi/agent`.
-- Direct JSON injection for trusted automation through `PI_AUTH_JSON_B64`, `PI_SETTINGS_JSON_B64`, and `PI_MODELS_JSON_B64` when re-running the helper.
+- The image preconfigures Pi to load `pi-mcp-adapter` and uses `/home/pi/.mcp.json` to point `opera-devtools-mcp` at `http://127.0.0.1:9222`.
+- A read-only auth-only host mount at `/opt/pi-host-auth` when `HOST_PI_AUTH_DIR` is set; `/usr/local/bin/pi-computer-bootstrap-pi` copies only `auth.json` into `/home/pi/.pi/agent`.
+- Local `.env` overrides can select the bounded task provider/model through `PI_HARNESS_PROVIDER`, `PI_HARNESS_MODEL`, and `PI_BROWSER_TASK_MAX_ARTICLES`.
 
 Useful checks:
 
 ```bash
 docker compose exec pi-computer pi --version
 docker compose exec pi-computer pi auth check --provider openai --json --no-refresh
-docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi-harness
+docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi
 ```
 
 ## MCP bridge
@@ -83,7 +83,7 @@ curl -fsS http://127.0.0.1:8080/healthz
 
 ## Limitations
 
-- The loopback-published task API currently uses this bridge directly for the `open_url` MVP smoke task; the real Pi harness is installed and auth-ready, but full supervised Pi AgentSession/task-runner cutover remains the next runtime step.
+- The loopback-published task API still uses this bridge directly for `open_url`, and now also bootstraps the real Pi harness with `pi-mcp-adapter` plus an internal `opera-devtools` MCP config for the bounded `news_browse_summary` task type.
 - The bridge is intentionally minimal until task-specific Pi MCP allowlists are implemented.
 - noVNC is directly reachable on the loopback-published port in this slice; keep the loopback host bind.
 - Opera's proprietary redistribution/licensing remains a release gate documented in the architecture notes.
