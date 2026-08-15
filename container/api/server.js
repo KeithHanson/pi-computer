@@ -3,7 +3,6 @@
 
 const http = require('http');
 const fs = require('fs/promises');
-const fss = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
@@ -15,7 +14,15 @@ const MAX_BODY = Number(process.env.API_MAX_BODY_BYTES || 16384);
 const DEFAULT_TIMEOUT = Number(process.env.TASK_TIMEOUT_SECONDS || 60);
 const MAX_TIMEOUT = Number(process.env.TASK_MAX_TIMEOUT_SECONDS || 300);
 const MAX_INSTRUCTION = Number(process.env.TASK_MAX_INSTRUCTION_CHARS || 2000);
+const MAX_PI_INSTRUCTION = Number(process.env.PI_HARNESS_MAX_INSTRUCTION_CHARS || 4000);
+const MAX_NEWS_ARTICLES = Math.max(1, Number(process.env.PI_BROWSER_TASK_MAX_ARTICLES || 5));
 const BRIDGE = process.env.BROWSER_MCP_BRIDGE || '/usr/local/bin/pi-computer-browser-mcp';
+const PI_BIN = process.env.PI_HARNESS_BIN || '/usr/local/bin/pi';
+const PI_MCP_CONFIG = process.env.PI_HARNESS_MCP_CONFIG || '/home/pi/.mcp.json';
+const PI_PROVIDER = process.env.PI_HARNESS_PROVIDER || '';
+const PI_MODEL = process.env.PI_HARNESS_MODEL || '';
+const PI_SESSION_DIR = process.env.PI_HARNESS_SESSION_DIR || '/home/pi/pi-computer/pi-sessions';
+const NEWS_START_URL = 'https://news.google.com/home?hl=en-US&gl=US&ceid=US:en';
 
 const tasks = new Map();
 const sseClients = new Map();
@@ -38,6 +45,7 @@ function publicTask(task) {
     completedAt: task.completedAt || null,
     cancellationRequestedAt: task.cancellationRequestedAt || null,
     request: task.request,
+    runner: task.runner || null,
     result: task.result || null,
     artifacts: task.artifacts || [],
     error: task.error || null,
@@ -84,22 +92,41 @@ async function readJson(req) {
 }
 
 function validateRequest(body) {
-  const allowedKeys = new Set(['taskType', 'startUrl', 'instruction', 'timeoutSeconds', 'profilePolicy']);
+  const allowedKeys = new Set(['taskType', 'startUrl', 'instruction', 'timeoutSeconds', 'profilePolicy', 'maxArticles']);
   for (const key of Object.keys(body)) {
     if (!allowedKeys.has(key)) throw new Error(`unsupported field: ${key}`);
   }
   const taskType = body.taskType || 'open_url';
-  if (taskType !== 'open_url') throw new Error('taskType must be open_url for the MVP');
-  if (typeof body.startUrl !== 'string') throw new Error('startUrl is required');
-  const parsed = new URL(body.startUrl);
-  if (!['http:', 'https:', 'about:'].includes(parsed.protocol)) throw new Error('startUrl must use http, https, or about');
-  if (body.instruction !== undefined && (typeof body.instruction !== 'string' || body.instruction.length > MAX_INSTRUCTION)) {
-    throw new Error(`instruction must be a string up to ${MAX_INSTRUCTION} characters`);
-  }
   const timeoutSeconds = Math.min(Math.max(Number(body.timeoutSeconds || DEFAULT_TIMEOUT), 1), MAX_TIMEOUT);
   const profilePolicy = body.profilePolicy || 'ephemeral';
-  if (profilePolicy !== 'ephemeral') throw new Error('only ephemeral profilePolicy is supported for the MVP');
-  return { taskType, startUrl: parsed.toString(), instruction: body.instruction || '', timeoutSeconds, profilePolicy };
+  if (profilePolicy !== 'ephemeral') throw new Error('only ephemeral profilePolicy is supported');
+
+  if (taskType === 'open_url') {
+    if (typeof body.startUrl !== 'string') throw new Error('startUrl is required');
+    const parsed = new URL(body.startUrl);
+    if (!['http:', 'https:', 'about:'].includes(parsed.protocol)) throw new Error('startUrl must use http, https, or about');
+    if (body.instruction !== undefined && (typeof body.instruction !== 'string' || body.instruction.length > MAX_INSTRUCTION)) {
+      throw new Error(`instruction must be a string up to ${MAX_INSTRUCTION} characters`);
+    }
+    return { taskType, startUrl: parsed.toString(), instruction: body.instruction || '', timeoutSeconds, profilePolicy };
+  }
+
+  if (taskType === 'news_browse_summary') {
+    if (typeof body.instruction !== 'string' || !body.instruction.trim()) throw new Error('instruction is required');
+    if (body.instruction.length > MAX_PI_INSTRUCTION) throw new Error(`instruction must be a string up to ${MAX_PI_INSTRUCTION} characters`);
+    const maxArticles = Math.min(Math.max(Number(body.maxArticles || 3), 1), MAX_NEWS_ARTICLES);
+    if (body.startUrl !== undefined) throw new Error('startUrl is fixed for news_browse_summary');
+    return {
+      taskType,
+      instruction: body.instruction.trim(),
+      timeoutSeconds,
+      profilePolicy,
+      maxArticles,
+      startUrl: NEWS_START_URL,
+    };
+  }
+
+  throw new Error('taskType must be open_url or news_browse_summary');
 }
 
 function callBridge(method, params, timeoutMs) {
@@ -142,16 +169,145 @@ function callBridge(method, params, timeoutMs) {
   });
 }
 
-async function writeArtifact(task, name, content) {
+async function writeArtifact(task, name, content, mediaType = 'application/json') {
   const artifactId = id('artifact');
   const fileName = `${artifactId}-${name}`;
   await fs.mkdir(artifactsDir(task.taskId), { recursive: true });
   const filePath = path.join(artifactsDir(task.taskId), fileName);
   await fs.writeFile(filePath, typeof content === 'string' ? content : JSON.stringify(content, null, 2));
   const stat = await fs.stat(filePath);
-  const artifact = { artifactId, name, mediaType: 'application/json', bytes: stat.size };
+  const artifact = { artifactId, name, mediaType, bytes: stat.size };
   task.artifacts.push(artifact);
   return artifact;
+}
+
+function extractJsonObject(text) {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidateText = fenced ? fenced[1].trim() : trimmed;
+  const starts = [];
+  for (let i = 0; i < candidateText.length; i += 1) {
+    if (candidateText[i] === '{') starts.push(i);
+  }
+  for (const start of starts) {
+    for (let end = candidateText.length; end > start; end -= 1) {
+      const slice = candidateText.slice(start, end).trim();
+      if (!slice.endsWith('}')) continue;
+      try {
+        return JSON.parse(slice);
+      } catch (_) {}
+    }
+  }
+  throw new Error('pi harness did not return valid JSON');
+}
+
+function buildNewsPrompt(task) {
+  return [
+    'You are a bounded browser summarization worker inside pi-computer.',
+    'Use the configured opera-devtools MCP tools to inspect pages in Opera.',
+    'Do not use any shell, filesystem, or non-browser capabilities.',
+    `Start at ${task.request.startUrl}.`,
+    `Follow at most ${task.request.maxArticles} news article links from that page.`,
+    'Prefer the visible top stories on the page. If some links are blocked, summarize the ones you can open.',
+    'For each opened article, capture the title, publisher, URL, and a concise summary based on the article content or an explicit limitation.',
+    'Return ONLY valid JSON with this exact top-level shape:',
+    '{"taskSummary":"string","sourcePage":"string","visitedPages":[{"title":"string","url":"string","kind":"landing|article","status":"opened|blocked|skipped"}],"articleSummaries":[{"title":"string","publisher":"string","url":"string","status":"opened|blocked","summary":"string"}],"aggregateSummary":{"headline":"string","bullets":["string"]},"limitations":["string"]}',
+    `User instruction: ${task.request.instruction}`,
+  ].join('\n');
+}
+
+function runProcess(command, args, timeoutMs, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGTERM');
+      reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) return resolve({ stdout, stderr, code });
+      return reject(new Error(`${command} exited with code ${code}: ${stderr || stdout}`));
+    });
+  });
+}
+
+async function runPiNewsTask(task) {
+  const timeoutMs = task.request.timeoutSeconds * 1000;
+  const prompt = buildNewsPrompt(task);
+  const piArgs = ['-p', '--no-builtin-tools', '--no-context-files', '--no-skills', '--no-prompt-templates', '--no-themes', '--mcp-config', PI_MCP_CONFIG, '--session-dir', PI_SESSION_DIR];
+  if (PI_PROVIDER) piArgs.push('--provider', PI_PROVIDER);
+  if (PI_MODEL) piArgs.push('--model', PI_MODEL);
+  piArgs.push(prompt);
+
+  task.runner = {
+    kind: 'pi_harness',
+    command: PI_BIN,
+    args: piArgs.filter((arg) => arg !== prompt).concat(['<prompt>']),
+    mcpConfig: PI_MCP_CONFIG,
+    browserMcpServer: 'opera-devtools',
+  };
+  await persist(task);
+  await emitEvent(task, 'runner.selected', { runner: task.runner.kind, command: task.runner.command, browserMcpServer: 'opera-devtools' });
+  await emitEvent(task, 'pi.started', { command: PI_BIN });
+
+  const workDir = taskDir(task.taskId);
+  await fs.mkdir(workDir, { recursive: true });
+  const result = await runProcess(PI_BIN, piArgs, timeoutMs, { cwd: workDir, env: { ...process.env, HOME: process.env.HOME || '/home/pi' } });
+  await emitEvent(task, 'pi.completed', { exitCode: 0, stdoutBytes: Buffer.byteLength(result.stdout), stderrBytes: Buffer.byteLength(result.stderr) });
+
+  const rawArtifact = await writeArtifact(task, 'pi-harness-output.txt', result.stdout, 'text/plain');
+  const stderrArtifact = await writeArtifact(task, 'pi-harness-stderr.txt', result.stderr, 'text/plain');
+  const parsed = extractJsonObject(result.stdout);
+  const summaryArtifact = await writeArtifact(task, 'news-summary.json', {
+    request: task.request,
+    runner: task.runner,
+    output: parsed,
+    observedAt: now(),
+  });
+
+  task.result = {
+    summary: parsed.taskSummary || parsed.aggregateSummary?.headline || 'Completed news browse and summarize task through the Pi harness.',
+    taskType: task.request.taskType,
+    runner: task.runner.kind,
+    startUrl: task.request.startUrl,
+    maxArticles: task.request.maxArticles,
+    visitedPages: Array.isArray(parsed.visitedPages) ? parsed.visitedPages.length : 0,
+    articleCount: Array.isArray(parsed.articleSummaries) ? parsed.articleSummaries.length : 0,
+    aggregateSummary: parsed.aggregateSummary || null,
+    limitations: parsed.limitations || [],
+    artifactIds: [summaryArtifact.artifactId, rawArtifact.artifactId, stderrArtifact.artifactId],
+  };
+}
+
+async function runOpenUrlTask(task) {
+  const timeoutMs = task.request.timeoutSeconds * 1000;
+  task.runner = { kind: 'browser_mcp_bridge', command: BRIDGE };
+  await persist(task);
+  await emitEvent(task, 'runner.selected', { runner: task.runner.kind, command: BRIDGE });
+  const readiness = await callBridge('tools/call', { name: 'browser.probe', arguments: {} }, timeoutMs);
+  await emitEvent(task, 'browser.probe', { ok: true });
+  const version = await callBridge('tools/call', { name: 'browser.version', arguments: {} }, timeoutMs);
+  await emitEvent(task, 'browser.version', { ok: true });
+  const navigation = await callBridge('tools/call', { name: 'browser.navigate', arguments: { url: task.request.startUrl } }, timeoutMs);
+  await emitEvent(task, 'browser.navigate', { url: task.request.startUrl });
+  const targets = await callBridge('tools/call', { name: 'browser.targets', arguments: {} }, timeoutMs);
+  const artifact = await writeArtifact(task, 'browser-observation.json', { request: task.request, runner: task.runner, readiness, version, navigation, targets, observedAt: now() });
+  task.result = { summary: `Opened ${task.request.startUrl} in Opera through the internal browser MCP/CDP bridge.`, runner: task.runner.kind, artifactIds: [artifact.artifactId] };
 }
 
 async function runTask(task) {
@@ -162,16 +318,8 @@ async function runTask(task) {
     task.state = 'running'; task.updatedAt = now();
     await persist(task); await emitEvent(task, 'state', { state: task.state });
     if (task.cancelRequested) throw new Error('cancelled before browser work started');
-    const timeoutMs = task.request.timeoutSeconds * 1000;
-    const readiness = await callBridge('tools/call', { name: 'browser.probe', arguments: {} }, timeoutMs);
-    await emitEvent(task, 'browser.probe', { ok: true });
-    const version = await callBridge('tools/call', { name: 'browser.version', arguments: {} }, timeoutMs);
-    await emitEvent(task, 'browser.version', { ok: true });
-    const navigation = await callBridge('tools/call', { name: 'browser.navigate', arguments: { url: task.request.startUrl } }, timeoutMs);
-    await emitEvent(task, 'browser.navigate', { url: task.request.startUrl });
-    const targets = await callBridge('tools/call', { name: 'browser.targets', arguments: {} }, timeoutMs);
-    const artifact = await writeArtifact(task, 'browser-observation.json', { request: task.request, readiness, version, navigation, targets, observedAt: now() });
-    task.result = { summary: `Opened ${task.request.startUrl} in Opera through the internal browser MCP/CDP bridge.`, artifactIds: [artifact.artifactId] };
+    if (task.request.taskType === 'news_browse_summary') await runPiNewsTask(task);
+    else await runOpenUrlTask(task);
     task.state = task.cancelRequested ? 'cancelled' : 'succeeded';
   } catch (e) {
     if (task.cancelRequested || task.state === 'cancelling') {
@@ -188,6 +336,7 @@ async function runTask(task) {
 
 async function loadExisting() {
   await fs.mkdir(STORE_DIR, { recursive: true });
+  await fs.mkdir(PI_SESSION_DIR, { recursive: true });
   const entries = await fs.readdir(STORE_DIR, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -210,14 +359,14 @@ function routeMatch(pathname) {
 async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (req.method === 'GET' && url.pathname === '/healthz') {
-    return send(res, 200, { ok: true, service: 'pi-computer-api', storeDir: STORE_DIR, activeTaskId });
+    return send(res, 200, { ok: true, service: 'pi-computer-api', storeDir: STORE_DIR, activeTaskId, piHarness: { bin: PI_BIN, mcpConfig: PI_MCP_CONFIG } });
   }
   const match = routeMatch(url.pathname);
   try {
     if (req.method === 'POST' && url.pathname === '/v1/tasks') {
       if (activeTaskId) return sendError(res, 409, 'one active task is already running');
       const request = validateRequest(await readJson(req));
-      const task = { taskId: id('task'), state: 'queued', createdAt: now(), updatedAt: now(), request, artifacts: [], events: [], cancelRequested: false };
+      const task = { taskId: id('task'), state: 'queued', createdAt: now(), updatedAt: now(), request, artifacts: [], events: [], cancelRequested: false, runner: null };
       tasks.set(task.taskId, task);
       await persist(task); await emitEvent(task, 'state', { state: 'queued' });
       setImmediate(() => runTask(task));
@@ -251,6 +400,6 @@ async function handler(req, res) {
 
 loadExisting().then(() => {
   http.createServer(handler).listen(PORT, HOST, () => {
-    console.log(`pi-computer-api listening on ${HOST}:${PORT}; store=${STORE_DIR}`);
+    console.log(`pi-computer-api listening on ${HOST}:${PORT}; store=${STORE_DIR}; pi=${PI_BIN}`);
   });
 }).catch((e) => { console.error(e); process.exit(1); });

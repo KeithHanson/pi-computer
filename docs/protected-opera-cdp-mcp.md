@@ -64,7 +64,7 @@ curl -fsSI -H "Authorization: Bearer ${PI_COMPUTER_NOVNC_TOKEN:-local-novnc-toke
 
 ## Limitations
 
-- The loopback-published task API currently uses this bridge directly for the `open_url` MVP smoke task; full Pi AgentSession integration remains the next runtime step.
+- The loopback-published task API still uses this bridge directly for `open_url`, and now also bootstraps the real Pi harness with `pi-mcp-adapter` plus an internal `opera-devtools` MCP config for the bounded `news_browse_summary` task type.
 - The bridge is intentionally minimal until task-specific Pi MCP allowlists are implemented.
 - noVNC is directly reachable on the loopback-published port in this slice; keep the loopback host bind.
 - Opera's proprietary redistribution/licensing remains a release gate documented in the architecture notes.

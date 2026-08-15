@@ -133,20 +133,30 @@ docker compose port pi-computer 9222 || true
 
 ### Browser task API
 
-See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, request/response shapes, lifecycle states, SSE events, artifact storage, and MVP limitations. The smoke path is:
+See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, request/response shapes, lifecycle states, SSE events, artifact storage, and Pi bootstrap details. The smoke path is:
 
 ```sh
 ./scripts/smoke-api.sh
 ```
 
-The API is intentionally declarative. It accepts an `open_url` browser task and does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or Pi CLI arguments.
+The API is intentionally declarative. It accepts a simple `open_url` smoke task plus a bounded `news_browse_summary` task that routes a human-English instruction through the real Pi harness with `pi-mcp-adapter` and the local Opera browser MCP path. It does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or arbitrary Pi CLI arguments.
+
+For local validation with existing Pi authentication, copy only `auth.json` into a narrow host directory and point `.env` at it:
+
+```sh
+cp ~/.pi/agent/auth.json ~/.pi/auth-export/auth.json
+cp .env.example .env
+$EDITOR .env
+```
+
+Set `HOST_PI_AUTH_DIR` to that auth-only directory. Do not mount the broader host `~/.pi/agent` directory into the container.
 
 
 ### Runtime hardening baseline
 
 Default Compose publishes only loopback-bound authenticated ingress ports: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP, Supervisor, and noVNC backend internals are not host-published.
 
-The container runs as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, memory/CPU limits, and a PID limit. Change placeholder local tokens (`PI_COMPUTER_API_TOKEN`, `PI_COMPUTER_NOVNC_TOKEN`, `PI_COMPUTER_NOVNC_USERNAME`, `PI_COMPUTER_NOVNC_PASSWORD`) before shared use, and never commit real token values.
+The container runs as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, memory/CPU limits, and a PID limit. If you use local `.env` overrides, never commit real credentials or copied Pi auth material.
 
 Run `./scripts/smoke-hardening.sh` after startup to verify runtime isolation, unpublished raw ports, sudo absence, compatibility sandbox flag reporting, and log token redaction expectations.
 

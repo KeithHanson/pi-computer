@@ -61,7 +61,7 @@ curl -fsS http://127.0.0.1:8080/healthz >/dev/null
 ## Current limitations
 
 - noVNC is now directly reachable on the loopback-published port without in-app auth; keep the default loopback host bind for local/internal access unless a stronger ingress is added.
-- the task API is a constrained MVP that performs an `open_url` smoke task through the stdio browser MCP bridge; full Pi `AgentSession` execution is next.
+- the task API remains constrained and declarative: `open_url` still uses the direct stdio browser MCP bridge, and `news_browse_summary` routes a bounded natural-language browser task through the real Pi harness plus `pi-mcp-adapter` and the local Opera MCP setup.
 - Opera CDP is intended for internal Pi/browser automation only; do not publish port `9222` by default.
 - The Opera apt repository is used at build time, so builds require external network access and trust in Opera's signed Debian repository.
 

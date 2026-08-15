@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_dir="${HOME}/.pi/agent"
+host_auth_dir="${PI_HOST_AUTH_DIR:-/opt/pi-host-auth}"
+mcp_config="${PI_HARNESS_MCP_CONFIG:-${HOME}/.mcp.json}"
+
+mkdir -p "${agent_dir}" "${agent_dir}/sessions"
+
+if [ -f "${host_auth_dir}/auth.json" ]; then
+  cp "${host_auth_dir}/auth.json" "${agent_dir}/auth.json"
+  chmod 600 "${agent_dir}/auth.json"
+fi
+
+cat > "${mcp_config}" <<'JSON'
+{
+  "mcpServers": {
+    "opera-devtools": {
+      "command": "opera-devtools-mcp",
+      "args": [
+        "--browser-url=http://127.0.0.1:9222"
+      ]
+    }
+  }
+}
+JSON
+chmod 600 "${mcp_config}"
+
+auth_state="missing"
+if [ -f "${agent_dir}/auth.json" ]; then
+  auth_state="present"
+fi
+echo "pi bootstrap ready: auth=${auth_state} mcp_config=${mcp_config}"
