@@ -69,17 +69,20 @@ def wait_for_page_target(deadline):
     raise RuntimeError(f"timed out waiting for browser page target readiness: {last_exc or 'unknown error'}")
 
 
-def ws_call(ws_url, method, params=None):
+def ws_call(ws_url, method, params=None, deadline=None):
     if websocket is None:
         raise RuntimeError(f"python websocket dependency unavailable: {websocket_import_error}")
-    ws = websocket.create_connection(ws_url, timeout=5)
+    if deadline is None:
+        deadline = time.time() + READY_TIMEOUT_SECONDS
+    connect_timeout = max(1.0, min(5.0, deadline - time.time()))
+    ws = websocket.create_connection(ws_url, timeout=connect_timeout)
     try:
         message = {"id": 1, "method": method}
         if params is not None:
             message["params"] = params
         ws.send(json.dumps(message))
-        deadline = time.time() + 10
         while time.time() < deadline:
+            ws.settimeout(max(1.0, deadline - time.time()))
             response = json.loads(ws.recv())
             if response.get("id") == 1:
                 if "error" in response:
@@ -90,19 +93,32 @@ def ws_call(ws_url, method, params=None):
         ws.close()
 
 
-def wait_for_ws_result(target_supplier, method, params=None):
-    deadline = time.time() + READY_TIMEOUT_SECONDS
+def wait_for_ws_result(target_supplier, method, params=None, deadline=None):
+    if deadline is None:
+        deadline = time.time() + READY_TIMEOUT_SECONDS
     last_exc = None
     while time.time() < deadline:
         try:
             target = target_supplier()
-            return ws_call(target["webSocketDebuggerUrl"], method, params)
+            return ws_call(target["webSocketDebuggerUrl"], method, params, deadline=deadline)
         except Exception as exc:
             if not should_retry(exc):
                 raise
             last_exc = exc
             time.sleep(RETRY_INTERVAL_SECONDS)
     raise RuntimeError(f"timed out waiting for browser websocket readiness for {method}: {last_exc or 'unknown error'}")
+
+
+def wait_for_browser_page_control(deadline):
+    wait_for_page_target(deadline)
+    runtime_probe = wait_for_ws_result(
+        first_page_target,
+        "Runtime.evaluate",
+        {"expression": "window.location.href", "returnByValue": True},
+        deadline=deadline,
+    )
+    page_probe = wait_for_ws_result(first_page_target, "Page.getNavigationHistory", {}, deadline=deadline)
+    return {"runtime": runtime_probe, "navigationHistory": page_probe}
 
 
 def tool_result(name, arguments):
@@ -112,18 +128,14 @@ def tool_result(name, arguments):
         wait_for_page_target(time.time() + READY_TIMEOUT_SECONDS)
         return cdp_get("/json/list")
     if name == "browser.probe":
-        wait_for_page_target(time.time() + READY_TIMEOUT_SECONDS)
-        return wait_for_ws_result(
-            first_page_target,
-            "Runtime.evaluate",
-            {"expression": "window.location.href", "returnByValue": True},
-        )
+        return wait_for_browser_page_control(time.time() + READY_TIMEOUT_SECONDS)
     if name == "browser.navigate":
         url = (arguments or {}).get("url")
         if not isinstance(url, str) or not url.startswith(("http://", "https://", "about:")):
             raise RuntimeError("browser.navigate requires http(s) or about: URL")
-        wait_for_page_target(time.time() + READY_TIMEOUT_SECONDS)
-        return wait_for_ws_result(first_page_target, "Page.navigate", {"url": url})
+        deadline = time.time() + READY_TIMEOUT_SECONDS
+        wait_for_browser_page_control(deadline)
+        return wait_for_ws_result(first_page_target, "Page.navigate", {"url": url}, deadline=deadline)
     raise RuntimeError(f"unknown tool: {name}")
 
 
@@ -149,7 +161,7 @@ def main():
                 respond(request, {"tools": [
                     {"name": "browser.version", "description": "Read Opera CDP /json/version metadata."},
                     {"name": "browser.targets", "description": "List Opera CDP page targets after waiting for startup readiness without exposing websocket URLs publicly."},
-                    {"name": "browser.probe", "description": "Verify the first ready page target accepts non-mutating websocket calls by reading window.location.href."},
+                    {"name": "browser.probe", "description": "Verify the first ready page target accepts non-mutating websocket calls across the Runtime and Page domains before task traffic starts."},
                     {"name": "browser.navigate", "description": "Navigate the first ready page target to an http(s) or about: URL, retrying through initial Opera startup races."},
                 ]})
             elif method == "tools/call":
