@@ -71,12 +71,15 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - A Node.js browser-task API is published on host loopback by default: `127.0.0.1:8080` (override `API_HOST_PORT`).
 - Compose allocates `1gb` `/dev/shm` for browser stability.
 - Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, loopback VNC readiness/no IPv6 VNC reachability, CDP `/json/version`, and a non-mutating browser websocket readiness probe across the Runtime and Page CDP domains without wildcard CDP binding.
+- Host-accessible runtime logs are written to `./runtime-logs/` by default; tail those files directly instead of relying on `docker compose logs` for routine debugging.
+- An optional host Opera profile directory is mounted read-only at startup, copied into an internal frozen snapshot under `/home/pi/opera-profile-frozen`, and restored into the live Opera profile before every browser start.
 
 ### Quick start
 
 Build and start locally:
 
 ```sh
+mkdir -p runtime-logs operator/opera-profile
 docker compose build pi-computer
 docker compose up -d pi-computer
 ```
@@ -84,7 +87,7 @@ docker compose up -d pi-computer
 Watch startup and health:
 
 ```sh
-docker compose logs -f pi-computer
+tail -F runtime-logs/*.log
 docker compose ps pi-computer
 ```
 
@@ -106,6 +109,26 @@ Remove the persisted browser home volume if you want a clean profile:
 docker compose down -v
 ```
 
+### Host profile import and frozen restore
+
+To share a host Opera profile into the container, point `HOST_OPERA_PROFILE_DIR` at the profile directory you want copied into the container snapshot before startup. For example:
+
+```sh
+HOST_OPERA_PROFILE_DIR=/absolute/path/to/opera-profile \
+HOST_RUNTIME_LOG_DIR=./runtime-logs \
+docker compose up -d pi-computer
+```
+
+If you do nothing, Compose mounts `./operator/opera-profile/` read-only as the host profile source. Leaving that directory empty keeps the existing in-container frozen snapshot unchanged.
+
+Runtime behavior:
+
+- host profile source: `/mnt/host-opera-profile`
+- frozen in-container snapshot: `/home/pi/opera-profile-frozen`
+- live Opera runtime profile: `/home/pi/.config/opera`
+
+On each container startup, any non-empty host profile source is recopied into the frozen snapshot. On every Opera/browser start, the live runtime profile is deleted and restored from that frozen snapshot before Opera launches.
+
 ### Runtime validation commands
 
 Useful checks after `docker compose up -d`:
@@ -117,6 +140,11 @@ docker compose exec pi-computer nc -vz 127.0.0.1 5900
 # This should fail because container IPv6 is disabled and x11vnc must not listen on :::5900:
 docker compose exec pi-computer nc -vz ::1 5900
 docker compose exec pi-computer curl -fsS http://127.0.0.1:9222/json/version
+docker compose exec pi-computer sh -lc 'test -d /home/pi/opera-profile-frozen && echo frozen-profile-present'
+docker compose exec pi-computer sh -lc 'printf mutated > /home/pi/.config/opera/profile-restore-marker && echo live_before_restart=$(cat /home/pi/.config/opera/profile-restore-marker)'
+docker compose restart pi-computer && sleep 10
+docker compose exec pi-computer sh -lc 'echo live_after_restart=$(cat /home/pi/.config/opera/profile-restore-marker)'
+tail -n 50 runtime-logs/opera.err.log runtime-logs/fluxbox.err.log runtime-logs/api.log runtime-logs/browser-mcp.log 2>/dev/null || true
 ./scripts/smoke-cdp.sh
 ./scripts/smoke-browser-mcp.sh
 ./scripts/smoke-host-boundary.sh
@@ -124,7 +152,6 @@ docker compose exec pi-computer opera --version
 curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 curl -fsS http://127.0.0.1:8080/healthz
 ./scripts/smoke-api.sh
-./scripts/smoke-novnc-auth.sh
 docker compose port pi-computer 6080
 # These should return nothing because raw VNC and CDP are intentionally not published:
 docker compose port pi-computer 5900 || true

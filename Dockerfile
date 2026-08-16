@@ -15,21 +15,26 @@ ENV DISPLAY=:1 \
     BROWSER_MCP_TRANSPORT=stdio \
     API_HOST=0.0.0.0 \
     API_PORT=8080 \
-    PI_COMPUTER_TASK_STORE=/home/pi/pi-computer/tasks \
+    PI_COMPUTER_TASK_STORE=/home/pi/pi-computer-tasks \
+    PI_COMPUTER_LOG_DIR=/home/pi/pi-computer-logs \
+    OPERA_PROFILE_DIR=/home/pi/.config/opera \
+    OPERA_FROZEN_PROFILE_DIR=/home/pi/opera-profile-frozen \
+    OPERA_HOST_PROFILE_SOURCE_DIR=/mnt/host-opera-profile \
     SCREEN_WIDTH=1280 \
     SCREEN_HEIGHT=800 \
     SCREEN_DEPTH=24 \
     HOME=/home/pi \
     XDG_CONFIG_HOME=/home/pi/.config \
-    XDG_CACHE_HOME=/home/pi/.cache
+    XDG_CACHE_HOME=/home/pi/.cache \
+    XDG_DATA_HOME=/home/pi/.data
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates curl wget gnupg apt-transport-https \
-      dumb-init supervisor procps net-tools netcat-openbsd socat \
+      dumb-init supervisor procps net-tools netcat-openbsd socat rsync \
       nodejs \
       python3 python3-websocket \
-      xvfb x11-utils x11vnc fluxbox dbus-x11 gsettings-desktop-schemas \
+      xvfb x11-utils x11vnc fluxbox feh dbus-x11 gsettings-desktop-schemas \
       novnc websockify \
       fonts-liberation fonts-dejavu-core libasound2 libatk-bridge2.0-0 libatk1.0-0 \
       libcups2 libdrm2 libgbm1 libgtk-3-0 libnss3 libu2f-udev libxcomposite1 \
@@ -41,8 +46,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends opera-stable \
     && groupadd --gid "${GID}" "${USERNAME}" \
     && useradd --uid "${UID}" --gid "${GID}" --create-home --shell /bin/bash "${USERNAME}" \
-    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/Downloads \
-    && chown -R "${USERNAME}:${USERNAME}" /var/log/pi-computer /var/run/pi-computer /home/pi \
+    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/.data /home/pi/Downloads /home/pi/pi-computer-logs /home/pi/pi-computer-tasks /home/pi/opera-profile-frozen /mnt/host-opera-profile \
+    && chown -R "${USERNAME}:${USERNAME}" /var/log/pi-computer /var/run/pi-computer /home/pi /mnt/host-opera-profile \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
