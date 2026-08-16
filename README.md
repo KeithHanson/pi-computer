@@ -66,6 +66,7 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - Xvfb virtual display, Fluxbox window manager, x11vnc, noVNC/websockify, and Opera Stable.
 - Direct VNC is relayed only on container IPv4 loopback (`127.0.0.1:5900`); x11vnc runs per connection in inetd mode without opening its own TCP listener, container IPv6 is disabled by Compose, and no VNC port is published by Compose.
 - Opera CDP is enabled on container loopback only (`127.0.0.1:9222`) for internal automation; no CDP port is published by Compose.
+- The real Pi harness CLI is installed in-container as `/usr/local/bin/pi` via `@earendil-works/pi-coding-agent`, along with Node.js 22 runtime support required by the package.
 - A minimal browser MCP-compatible smoke bridge is packaged as a stdio-only child process at `/usr/local/bin/pi-computer-browser-mcp`; no MCP port is published by Compose.
 - noVNC operator access is published only on host loopback by default: `127.0.0.1:6080` (override with `NOVNC_HOST_PORT` for local port conflicts). The published endpoint is a Node.js loopback proxy; the noVNC/websockify backend listens only on container loopback.
 - A Node.js browser-task API is published on host loopback by default: `127.0.0.1:8080` (override `API_HOST_PORT`).
@@ -79,6 +80,38 @@ Build and start locally:
 ```sh
 docker compose build pi-computer
 docker compose up -d pi-computer
+```
+
+### Pi harness auth/bootstrap
+
+The image now bootstraps Pi in a narrowly scoped way for browser-task validation:
+
+1. The image preconfigures Pi to load `pi-mcp-adapter` and points `/home/pi/.mcp.json` at the local `opera-devtools-mcp` server for browser work.
+2. For local validation, mount only the host `auth.json` file by setting `HOST_PI_AUTH_JSON`; `/usr/local/bin/pi-computer-bootstrap-pi` copies only that file into `/home/pi/.pi/agent/auth.json` on startup.
+3. Use `.env.example` to override the bounded browser-task provider/model via `PI_HARNESS_PROVIDER`, `PI_HARNESS_MODEL`, and `PI_BROWSER_TASK_MAX_ARTICLES`.
+
+Recommended local first run:
+
+```sh
+cp .env.example .env
+$EDITOR .env
+
+docker compose up -d --build pi-computer
+```
+
+Set `HOST_PI_AUTH_JSON` in `.env` to the host auth file path, for example `/home/keith/.pi/agent/auth.json`. Do not mount the broader host `~/.pi/agent` directory into the container.
+
+Verify the harness and auth state inside the container:
+
+```sh
+docker compose exec pi-computer pi --version
+docker compose exec pi-computer pi auth check --provider openai --json --no-refresh
+```
+
+If you update the mounted auth-only directory, re-run bootstrap with:
+
+```sh
+docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi
 ```
 
 Watch startup and health:
@@ -125,6 +158,8 @@ curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 curl -fsS http://127.0.0.1:8080/healthz
 ./scripts/smoke-api.sh
 ./scripts/smoke-novnc-auth.sh
+./scripts/smoke-pi-harness.sh
+
 docker compose port pi-computer 6080
 # These should return nothing because raw VNC and CDP are intentionally not published:
 docker compose port pi-computer 5900 || true
@@ -133,22 +168,47 @@ docker compose port pi-computer 9222 || true
 
 ### Browser task API
 
-See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, request/response shapes, lifecycle states, SSE events, artifact storage, and MVP limitations. The smoke path is:
+See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, request/response shapes, lifecycle states, live transcript-backed progress, artifact storage, and Pi bootstrap details. The smoke path is:
 
 ```sh
 ./scripts/smoke-api.sh
 ```
 
-The API is intentionally declarative. It accepts an `open_url` browser task and does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or Pi CLI arguments.
+The API is intentionally declarative. It accepts a simple `open_url` smoke task plus a bounded `news_browse_summary` task that routes a human-English instruction through the real Pi harness with `pi-mcp-adapter` and the local Opera browser MCP path. The richer task uses the installed adapter's ambient shared-config discovery via `/home/pi/.config/mcp/mcp.json` rather than passing `--mcp-config`. While that task is running, operators can follow live transcript-derived progress through task SSE (`pi.progress`) or tail-friendly task endpoints (`progressUrl`, `transcriptUrl`). The API does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or arbitrary Pi CLI arguments.
+
+For local validation with existing Pi authentication, point `.env` at the host auth file only:
+
+```sh
+cp .env.example .env
+$EDITOR .env
+```
+
+Set `HOST_PI_AUTH_JSON` to the host auth file path. Do not mount the broader host `~/.pi/agent` directory into the container.
+
+## Current Pi integration boundary
+
+`open_url` still uses the repo-local stdio browser bridge directly. `news_browse_summary` now runs through the real Pi harness while keeping the existing noVNC/API/raw-port boundaries intact.
+
+### Following live task progress
+
+After submitting a `news_browse_summary` task, use the returned `taskId` with any of these host-side commands:
+
+```sh
+curl -N "http://127.0.0.1:8080/v1/tasks/${TASK_ID}/events"
+curl -fsS "http://127.0.0.1:8080/v1/tasks/${TASK_ID}/progress?lines=200"
+curl -fsS "http://127.0.0.1:8080/v1/tasks/${TASK_ID}/transcript?lines=50"
+```
+
+Use `events` for push-style updates, `progress` for a condensed text log, and `transcript` for the raw Pi session JSONL mirror.
 
 
 ### Runtime hardening baseline
 
-Default Compose publishes only loopback-bound authenticated ingress ports: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP, Supervisor, and noVNC backend internals are not host-published.
+Default Compose publishes only loopback-bound ingress ports: noVNC on `127.0.0.1:6080` and the task API on `127.0.0.1:8080`. Those endpoints are currently unauthenticated at the application layer and are intended for trusted local/internal use only. Raw VNC (`5900`), Opera CDP (`9222`), browser MCP, Supervisor, and noVNC backend internals are not host-published.
 
-The container runs as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, memory/CPU limits, and a PID limit. Change placeholder local tokens (`PI_COMPUTER_API_TOKEN`, `PI_COMPUTER_NOVNC_TOKEN`, `PI_COMPUTER_NOVNC_USERNAME`, `PI_COMPUTER_NOVNC_PASSWORD`) before shared use, and never commit real token values.
+The container runs as UID/GID `1000:1000` with `no-new-privileges`, `cap_drop: [ALL]`, a read-only root filesystem, bounded tmpfs writable surfaces, `/dev/shm`, memory/CPU limits, and a PID limit. There is no built-in API/noVNC bearer-token or basic-auth gate in the current runtime; if you need broader exposure, add TLS/auth at a separate ingress instead of changing the default loopback binds. If you use local `.env` overrides, never commit real credentials or copied Pi auth material.
 
-Run `./scripts/smoke-hardening.sh` after startup to verify runtime isolation, unpublished raw ports, sudo absence, compatibility sandbox flag reporting, and log token redaction expectations.
+Run `./scripts/smoke-hardening.sh` after startup to verify runtime isolation, unpublished raw ports, sudo absence, compatibility sandbox flag reporting, and basic secret-redaction expectations for recent logs.
 
 ### Security notes for the MVP
 

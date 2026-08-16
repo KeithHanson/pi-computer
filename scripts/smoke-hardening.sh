@@ -43,7 +43,7 @@ for forbidden in ("5900/tcp", "9222/tcp"):
 for published in ("6080/tcp", "8080/tcp"):
     bindings = ports.get(published) or []
     if not bindings:
-        fail(f"expected authenticated ingress {published} to be loopback-published")
+        fail(f"expected loopback-published ingress {published}")
     for binding in bindings:
         if binding.get("HostIp") not in {"127.0.0.1", "localhost"}:
             fail(f"{published} must bind host loopback only, got {bindings}")
@@ -78,7 +78,12 @@ docker compose exec -T "${service}" bash -lc '
 '
 
 logs="$(docker compose logs --no-color --tail=300 "${service}" || true)"
-for secret in "${PI_COMPUTER_API_TOKEN:-local-dev-token-change-me}" "${PI_COMPUTER_NOVNC_TOKEN:-local-novnc-token-change-me}" "${PI_COMPUTER_NOVNC_PASSWORD:-${PI_COMPUTER_NOVNC_TOKEN:-local-novnc-token-change-me}}"; do
+for secret in \
+  "${OPENAI_API_KEY:-}" \
+  "${ANTHROPIC_API_KEY:-}" \
+  "${GEMINI_API_KEY:-}" \
+  "${OPENROUTER_API_KEY:-}" \
+  "${PI_AUTH_JSON_B64:-}"; do
   if [[ -n "${secret}" ]] && grep -F -- "${secret}" <<<"${logs}" >/dev/null; then
     echo "secret-like token value appeared in recent compose logs" >&2
     exit 1

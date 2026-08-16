@@ -8,8 +8,8 @@ services:
     user: "1000:1000"
     read_only: true
     shm_size: "1gb"
-    pids_limit: 512
-    mem_limit: "2g"
+    pids_limit: 1024
+    mem_limit: "4g"
     cpus: "2.0"
     cap_drop:
       - ALL
@@ -23,6 +23,10 @@ services:
       - "${API_HOST_BIND:-127.0.0.1}:${API_HOST_PORT:-8080}:8080"
     volumes:
       - pi-computer-home:/home/pi
+      - type: bind
+        source: ${HOST_PI_AUTH_JSON:-./container/host-pi-agent-placeholder/auth.json}
+        target: /opt/pi-host-auth/auth.json
+        read_only: true
     environment:
       SCREEN_WIDTH: "1280"
       SCREEN_HEIGHT: "800"
@@ -36,6 +40,14 @@ services:
       API_HOST: "0.0.0.0"
       API_PORT: "8080"
       PI_COMPUTER_TASK_STORE: "/home/pi/pi-computer/tasks"
+      PI_HARNESS_BIN: "/usr/local/bin/pi"
+      PI_HARNESS_MCP_CONFIG: "/home/pi/.config/mcp/mcp.json"
+      PI_HARNESS_PROVIDER: "${PI_HARNESS_PROVIDER:-openai-codex}"
+      PI_HARNESS_MODEL: "${PI_HARNESS_MODEL:-gpt-5.4}"
+      PI_HARNESS_SESSION_DIR: "/home/pi/pi-computer/pi-sessions"
+      PI_HARNESS_MAX_INSTRUCTION_CHARS: "4000"
+      PI_BROWSER_TASK_MAX_ARTICLES: "${PI_BROWSER_TASK_MAX_ARTICLES:-5}"
+      PI_HOST_AUTH_FILE: "/opt/pi-host-auth/auth.json"
     security_opt:
       - no-new-privileges:true
     sysctls:

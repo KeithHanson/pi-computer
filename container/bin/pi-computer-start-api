@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+/usr/local/bin/pi-computer-bootstrap-pi
+exec /usr/bin/node /opt/pi-computer/api/server.js

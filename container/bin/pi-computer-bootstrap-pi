@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_dir="${HOME}/.pi/agent"
+host_auth_file="${PI_HOST_AUTH_FILE:-/opt/pi-host-auth/auth.json}"
+mcp_config="${PI_HARNESS_MCP_CONFIG:-${HOME}/.config/mcp/mcp.json}"
+pi_provider="${PI_HARNESS_PROVIDER:-openai-codex}"
+pi_model="${PI_HARNESS_MODEL:-gpt-5.4}"
+pi_adapter_version="${PI_MCP_ADAPTER_NPM_VERSION:-2.21.2}"
+agent_npm_dir="${agent_dir}/npm"
+settings_json="${agent_dir}/settings.json"
+agent_package_json="${agent_npm_dir}/package.json"
+
+mkdir -p "${agent_dir}" "${agent_dir}/sessions" "${agent_npm_dir}" "$(dirname "${mcp_config}")"
+
+if [ -s "${host_auth_file}" ]; then
+  cp "${host_auth_file}" "${agent_dir}/auth.json"
+  chmod 600 "${agent_dir}/auth.json"
+fi
+
+cat > "${mcp_config}" <<'JSON'
+{
+  "mcpServers": {
+    "opera-devtools": {
+      "command": "opera-devtools-mcp",
+      "args": [
+        "--browser-url=http://127.0.0.1:9222"
+      ]
+    }
+  }
+}
+JSON
+chmod 600 "${mcp_config}"
+
+python3 - "$settings_json" "$pi_provider" "$pi_model" <<'PY'
+import json
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+provider = sys.argv[2]
+model = sys.argv[3]
+if path.exists():
+    data = json.loads(path.read_text())
+else:
+    data = {}
+packages = data.get('packages')
+if not isinstance(packages, list):
+    packages = []
+if 'npm:pi-mcp-adapter' not in packages:
+    packages.append('npm:pi-mcp-adapter')
+data['packages'] = packages
+if not data.get('defaultProvider'):
+    data['defaultProvider'] = provider
+if not data.get('defaultModel'):
+    data['defaultModel'] = model
+path.write_text(json.dumps(data, indent=2) + '\n')
+PY
+chmod 600 "$settings_json"
+
+cat > "$agent_package_json" <<JSON
+{"name":"pi-extensions","private":true,"dependencies":{"pi-mcp-adapter":"^${pi_adapter_version}"}}
+JSON
+chmod 600 "$agent_package_json"
+
+if [ ! -d "${agent_npm_dir}/node_modules/pi-mcp-adapter" ]; then
+  npm --prefix "$agent_npm_dir" install --omit=dev >/tmp/pi-computer-npm-install.log 2>&1 || {
+    cat /tmp/pi-computer-npm-install.log >&2
+    exit 1
+  }
+fi
+
+auth_state="missing"
+if [ -f "${agent_dir}/auth.json" ]; then
+  auth_state="present"
+fi
+echo "pi bootstrap ready: auth=${auth_state} mcp_config=${mcp_config} mode=ambient_shared_config settings=${settings_json} package=pi-mcp-adapter@${pi_adapter_version}"
