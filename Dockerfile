@@ -20,6 +20,7 @@ ENV DISPLAY=:1 \
     API_HOST=0.0.0.0 \
     API_PORT=8080 \
     PI_COMPUTER_TASK_STORE=/home/pi/pi-computer/tasks \
+    PI_COMPUTER_LOG_DIR=/home/pi/pi-computer-logs \
     PI_HARNESS_BIN=/usr/local/bin/pi \
     PI_HARNESS_MCP_CONFIG=/home/pi/.config/mcp/mcp.json \
     PI_HARNESS_PROVIDER=openai-codex \
@@ -29,17 +30,21 @@ ENV DISPLAY=:1 \
     PI_BROWSER_TASK_MAX_ARTICLES=5 \
     PI_MCP_ADAPTER_NPM_VERSION=${PI_MCP_ADAPTER_VERSION} \
     PI_HOST_AUTH_DIR=/opt/pi-host-auth \
+    OPERA_PROFILE_DIR=/home/pi/.config/opera \
+    OPERA_FROZEN_PROFILE_DIR=/home/pi/opera-profile-frozen \
+    OPERA_HOST_PROFILE_SOURCE_DIR=/mnt/host-opera-profile \
     SCREEN_WIDTH=1280 \
     SCREEN_HEIGHT=800 \
     SCREEN_DEPTH=24 \
     HOME=/home/pi \
     XDG_CONFIG_HOME=/home/pi/.config \
-    XDG_CACHE_HOME=/home/pi/.cache
+    XDG_CACHE_HOME=/home/pi/.cache \
+    XDG_DATA_HOME=/home/pi/.data
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates curl wget xz-utils gnupg apt-transport-https \
-      dumb-init supervisor procps net-tools netcat-openbsd socat \
+      dumb-init supervisor procps net-tools netcat-openbsd socat rsync \
       python3 python3-websocket \
       xvfb x11-utils x11vnc fluxbox dbus-x11 gsettings-desktop-schemas \
       novnc websockify \
@@ -69,11 +74,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends opera-stable \
     && groupadd --gid "${GID}" "${USERNAME}" \
     && useradd --uid "${UID}" --gid "${GID}" --create-home --shell /bin/bash "${USERNAME}" \
-    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/.config/mcp /home/pi/Downloads /home/pi/pi-computer/pi-sessions /home/pi/.pi/agent/npm \
+    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/.config/mcp /home/pi/.data /home/pi/Downloads /home/pi/pi-computer/pi-sessions /home/pi/pi-computer-logs /home/pi/opera-profile-frozen /mnt/host-opera-profile /home/pi/.pi/agent/npm \
     && printf '{\n  "defaultProvider": "openai-codex",\n  "defaultModel": "gpt-5.4",\n  "packages": [\n    "npm:pi-mcp-adapter"\n  ]\n}\n' > /home/pi/.pi/agent/settings.json \
     && printf '{"name":"pi-extensions","private":true,"dependencies":{"pi-mcp-adapter":"^%s"}}\n' "${PI_MCP_ADAPTER_VERSION}" > /home/pi/.pi/agent/npm/package.json \
     && npm --prefix /home/pi/.pi/agent/npm install \
-    && chown -R "${USERNAME}:${USERNAME}" /var/log/pi-computer /var/run/pi-computer /home/pi \
+    && chown -R "${USERNAME}:${USERNAME}" /var/log/pi-computer /var/run/pi-computer /home/pi /mnt/host-opera-profile \
     && node --version \
     && pi --version \
     && apt-get clean \

@@ -1,1 +1,4 @@
 .env
+operator/
+runtime-logs/
+runtime-logs-*/

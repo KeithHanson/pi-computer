@@ -10,6 +10,8 @@ const { spawn } = require('child_process');
 const HOST = process.env.API_HOST || '0.0.0.0';
 const PORT = Number(process.env.API_PORT || 8080);
 const STORE_DIR = process.env.PI_COMPUTER_TASK_STORE || '/home/pi/pi-computer/tasks';
+const LOG_DIR = process.env.PI_COMPUTER_LOG_DIR || '/home/pi/pi-computer-logs';
+const BRIDGE_LOG = path.join(LOG_DIR, 'browser-mcp.log');
 const MAX_BODY = Number(process.env.API_MAX_BODY_BYTES || 16384);
 const DEFAULT_TIMEOUT = Number(process.env.TASK_TIMEOUT_SECONDS || 60);
 const MAX_TIMEOUT = Number(process.env.TASK_MAX_TIMEOUT_SECONDS || 300);
@@ -134,6 +136,15 @@ async function readJson(req) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+function appendBridgeLog(chunk) {
+  try {
+    require('fs').mkdirSync(LOG_DIR, { recursive: true });
+    require('fs').appendFileSync(BRIDGE_LOG, `[${now()}] ${chunk}`);
+  } catch (_) {
+    // Ignore log write failures so task execution still reports the primary browser error.
+  }
+}
+
 function validateRequest(body) {
   const allowedKeys = new Set(['taskType', 'startUrl', 'instruction', 'timeoutSeconds', 'profilePolicy', 'maxArticles']);
   for (const key of Object.keys(body)) {
@@ -201,7 +212,11 @@ function callBridge(method, params, timeoutMs) {
       finish(reject, new Error(`browser bridge timed out after ${timeoutMs}ms: ${err}`));
     }, timeoutMs);
     child.stdout.on('data', (d) => { out += d.toString(); tryResolve(); });
-    child.stderr.on('data', (d) => { err += d.toString(); });
+    child.stderr.on('data', (d) => {
+      const text = d.toString();
+      err += text;
+      appendBridgeLog(text);
+    });
     child.on('error', (e) => finish(reject, e));
     child.on('close', () => {
       if (settled) return;
@@ -394,6 +409,7 @@ async function runTask(task) {
 
 async function loadExisting() {
   await fs.mkdir(STORE_DIR, { recursive: true });
+  await fs.mkdir(LOG_DIR, { recursive: true });
   await fs.mkdir(PI_SESSION_DIR, { recursive: true });
   const entries = await fs.readdir(STORE_DIR, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {

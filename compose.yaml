@@ -27,6 +27,17 @@ services:
         source: ${HOST_PI_AUTH_JSON:-./container/host-pi-agent-placeholder/auth.json}
         target: /opt/pi-host-auth/auth.json
         read_only: true
+      - type: bind
+        source: ${HOST_OPERA_PROFILE_DIR:-./operator/opera-profile}
+        target: /mnt/host-opera-profile
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ${HOST_RUNTIME_LOG_DIR:-./runtime-logs}
+        target: /home/pi/pi-computer-logs
+        bind:
+          create_host_path: true
     environment:
       SCREEN_WIDTH: "1280"
       SCREEN_HEIGHT: "800"
@@ -40,6 +51,7 @@ services:
       API_HOST: "0.0.0.0"
       API_PORT: "8080"
       PI_COMPUTER_TASK_STORE: "/home/pi/pi-computer/tasks"
+      PI_COMPUTER_LOG_DIR: "/home/pi/pi-computer-logs"
       PI_HARNESS_BIN: "/usr/local/bin/pi"
       PI_HARNESS_MCP_CONFIG: "/home/pi/.config/mcp/mcp.json"
       PI_HARNESS_PROVIDER: "${PI_HARNESS_PROVIDER:-openai-codex}"
@@ -47,9 +59,10 @@ services:
       PI_HARNESS_SESSION_DIR: "/home/pi/pi-computer/pi-sessions"
       PI_HARNESS_MAX_INSTRUCTION_CHARS: "4000"
       PI_BROWSER_TASK_MAX_ARTICLES: "${PI_BROWSER_TASK_MAX_ARTICLES:-5}"
-      OPERA_PROFILE_DIR: "/home/pi/pi-computer/runtime/opera-profile"
-      OPERA_CACHE_DIR: "/home/pi/pi-computer/runtime/opera-cache"
-      OPERA_START_FRESH: "1"
+      XDG_DATA_HOME: "/home/pi/.data"
+      OPERA_PROFILE_DIR: "/home/pi/.config/opera"
+      OPERA_FROZEN_PROFILE_DIR: "/home/pi/opera-profile-frozen"
+      OPERA_HOST_PROFILE_SOURCE_DIR: "/mnt/host-opera-profile"
       PI_HOST_AUTH_FILE: "/opt/pi-host-auth/auth.json"
     security_opt:
       - no-new-privileges:true

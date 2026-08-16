@@ -8,18 +8,53 @@ for _ in $(seq 1 60); do
 done
 profile_dir="${OPERA_PROFILE_DIR:-${HOME}/.config/opera}"
 cache_dir="${OPERA_CACHE_DIR:-${HOME}/.cache/opera}"
+frozen_dir="${OPERA_FROZEN_PROFILE_DIR:-${HOME}/opera-profile-frozen}"
+host_profile_dir="${OPERA_HOST_PROFILE_SOURCE_DIR:-/mnt/host-opera-profile}"
+log_dir="${PI_COMPUTER_LOG_DIR:-${HOME}/pi-computer-logs}"
+xdg_data_home="${XDG_DATA_HOME:-${HOME}/.data}"
 cdp_host="${CDP_HOST:-127.0.0.1}"
 cdp_port="${CDP_PORT:-9222}"
-chrome_log_file="${OPERA_CHROME_LOG_FILE:-/var/log/pi-computer/opera-browser.log}"
-start_fresh="${OPERA_START_FRESH:-1}"
+chrome_log_file="${OPERA_CHROME_LOG_FILE:-${log_dir}/opera-browser.log}"
 
-if [ "${start_fresh}" = "1" ]; then
-  rm -rf "${profile_dir}" "${cache_dir}"
+mkdir -p "$(dirname "${profile_dir}")" "$(dirname "${cache_dir}")" "$(dirname "${frozen_dir}")" "${log_dir}" "${xdg_data_home}" "${xdg_data_home}/pki/nssdb"
+
+has_entries() {
+  local dir="$1"
+  [ -d "${dir}" ] && find "${dir}" -mindepth 1 -print -quit | grep -q .
+}
+
+replace_tree() {
+  local src="$1"
+  local dst="$2"
+  local tmp="${dst}.tmp.$$"
+  rm -rf "${tmp}"
+  mkdir -p "${tmp}"
+  if has_entries "${src}"; then
+    tar -C "${src}" -cf - . | tar -C "${tmp}" -xf -
+  fi
+  rm -rf "${dst}"
+  mv "${tmp}" "${dst}"
+}
+
+if has_entries "${host_profile_dir}"; then
+  echo "refreshing frozen Opera profile from host source ${host_profile_dir} -> ${frozen_dir}" >&2
+  replace_tree "${host_profile_dir}" "${frozen_dir}"
 fi
-mkdir -p "${profile_dir}" "${cache_dir}" "$(dirname "${chrome_log_file}")"
+
+rm -rf "${cache_dir}"
+mkdir -p "${cache_dir}"
+
+if has_entries "${frozen_dir}"; then
+  echo "restoring live Opera profile from frozen snapshot ${frozen_dir} -> ${profile_dir}" >&2
+  replace_tree "${frozen_dir}" "${profile_dir}"
+else
+  rm -rf "${profile_dir}"
+  mkdir -p "${profile_dir}"
+fi
+
 rm -f "${profile_dir}/SingletonLock" "${profile_dir}/SingletonSocket" "${profile_dir}/SingletonCookie"
 : > "${chrome_log_file}"
-printf 'pi-computer-start-opera: profile_dir=%s cache_dir=%s start_fresh=%s\n' "${profile_dir}" "${cache_dir}" "${start_fresh}"
+printf 'pi-computer-start-opera: profile_dir=%s cache_dir=%s frozen_dir=%s\n' "${profile_dir}" "${cache_dir}" "${frozen_dir}"
 export CHROME_LOG_FILE="${chrome_log_file}"
 export XDG_CACHE_HOME="${cache_dir}"
 exec dbus-run-session -- /usr/bin/opera \

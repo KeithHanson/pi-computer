@@ -12,7 +12,7 @@ The MVP is a single-user, single-tenant browser-agent appliance:
 - Opera launched with a task-scoped profile and loopback-only Chrome DevTools Protocol (CDP);
 - an internal Opera/browser MCP setup exposed only to Pi, not to public callers;
 - a loopback-published Node.js task API for declarative browser requests;
-- one active task per container at first, with fresh runtime Opera profile/cache reset on browser start and ephemeral profiles by default;
+- one active task per container at first, with fresh runtime Opera profile/cache reset on browser start, frozen profile restore support, and ephemeral profiles by default;
 - loopback-published API and noVNC access by default, with host/network boundaries as the protection layer.
 
 The first concrete consumer is `daily-briefing`, but the project should remain reusable for other browser-task workflows.
@@ -72,12 +72,15 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - A Node.js browser-task API is published on host loopback by default: `127.0.0.1:8080` (override `API_HOST_PORT`).
 - Compose allocates `1gb` `/dev/shm` for browser stability.
 - Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, loopback VNC readiness/no IPv6 VNC reachability, CDP `/json/version`, and a non-mutating browser websocket readiness probe across the Runtime and Page CDP domains without wildcard CDP binding.
+- Host-accessible runtime logs are written to `./runtime-logs/` by default; tail those files directly instead of relying on `docker compose logs` for routine debugging.
+- An optional host Opera profile directory is mounted read-only at startup, copied into an internal frozen snapshot under `/home/pi/opera-profile-frozen`, and restored into the live Opera profile before every browser start.
 
 ### Quick start
 
 Build and start locally:
 
 ```sh
+mkdir -p runtime-logs operator/opera-profile
 docker compose build pi-computer
 docker compose up -d pi-computer
 ```
@@ -117,7 +120,7 @@ docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi
 Watch startup and health:
 
 ```sh
-docker compose logs -f pi-computer
+tail -F runtime-logs/*.log
 docker compose ps pi-computer
 ```
 
@@ -139,6 +142,26 @@ Remove the persisted browser home volume if you want a clean profile:
 docker compose down -v
 ```
 
+### Host profile import and frozen restore
+
+To share a host Opera profile into the container, point `HOST_OPERA_PROFILE_DIR` at the profile directory you want copied into the container snapshot before startup. For example:
+
+```sh
+HOST_OPERA_PROFILE_DIR=/absolute/path/to/opera-profile \
+HOST_RUNTIME_LOG_DIR=./runtime-logs \
+docker compose up -d pi-computer
+```
+
+If you do nothing, Compose mounts `./operator/opera-profile/` read-only as the host profile source. Leaving that directory empty keeps the existing in-container frozen snapshot unchanged.
+
+Runtime behavior:
+
+- host profile source: `/mnt/host-opera-profile`
+- frozen in-container snapshot: `/home/pi/opera-profile-frozen`
+- live Opera runtime profile: `/home/pi/.config/opera`
+
+On each container startup, any non-empty host profile source is recopied into the frozen snapshot. On every Opera/browser start, the live runtime profile is deleted and restored from that frozen snapshot before Opera launches.
+
 ### Runtime validation commands
 
 Useful checks after `docker compose up -d`:
@@ -150,6 +173,11 @@ docker compose exec pi-computer nc -vz 127.0.0.1 5900
 # This should fail because container IPv6 is disabled and x11vnc must not listen on :::5900:
 docker compose exec pi-computer nc -vz ::1 5900
 docker compose exec pi-computer curl -fsS http://127.0.0.1:9222/json/version
+docker compose exec pi-computer sh -lc 'test -d /home/pi/opera-profile-frozen && echo frozen-profile-present'
+docker compose exec pi-computer sh -lc 'printf mutated > /home/pi/.config/opera/profile-restore-marker && echo live_before_restart=$(cat /home/pi/.config/opera/profile-restore-marker)'
+docker compose restart pi-computer && sleep 10
+docker compose exec pi-computer sh -lc 'if [ -f /home/pi/.config/opera/profile-restore-marker ]; then echo live_after_restart=$(cat /home/pi/.config/opera/profile-restore-marker); else echo live_after_restart=missing; fi'
+tail -n 50 runtime-logs/opera.err.log runtime-logs/fluxbox.err.log runtime-logs/api.log runtime-logs/browser-mcp.log 2>/dev/null || true
 ./scripts/smoke-cdp.sh
 ./scripts/smoke-browser-mcp.sh
 ./scripts/smoke-host-boundary.sh
@@ -168,13 +196,13 @@ docker compose port pi-computer 9222 || true
 
 ### Browser task API
 
-See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, request/response shapes, lifecycle states, SSE events, artifact storage, and Pi bootstrap details. The smoke path is:
+See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, request/response shapes, lifecycle states, live transcript-backed progress, SSE events, artifact storage, and Pi bootstrap details. The smoke path is:
 
 ```sh
 ./scripts/smoke-api.sh
 ```
 
-The API is intentionally declarative. It accepts a simple `open_url` smoke task plus a bounded `news_browse_summary` task that routes a human-English instruction through the real Pi harness with `pi-mcp-adapter` and the local Opera browser MCP path. The richer task uses the installed adapter's ambient shared-config discovery via `/home/pi/.config/mcp/mcp.json` rather than passing `--mcp-config`. It does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or arbitrary Pi CLI arguments.
+The API is intentionally declarative. It accepts a simple `open_url` smoke task plus a bounded `news_browse_summary` task that routes a human-English instruction through the real Pi harness with `pi-mcp-adapter` and the local Opera browser MCP path. The richer task uses the installed adapter's ambient shared-config discovery via `/home/pi/.config/mcp/mcp.json` rather than passing `--mcp-config`. While that task is running, operators can follow live transcript-derived progress through task SSE (`pi.progress`) or tail-friendly task endpoints (`progressUrl`, `transcriptUrl`). The API does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or arbitrary Pi CLI arguments.
 
 For local validation with existing Pi authentication, point `.env` at the host auth file only:
 
@@ -187,7 +215,19 @@ Set `HOST_PI_AUTH_JSON` to the host auth file path. Do not mount the broader hos
 
 ## Current Pi integration boundary
 
-The real Pi harness is now installed and operator-authenticatable inside the container, but the supervised `/v1/*` browser task API still drives the repo-local stdio browser bridge directly for this slice. That keeps the existing noVNC/API/raw-port boundaries intact while making Pi available for interactive operator use, future task-runner cutover, and in-container auth/bootstrap validation.
+`open_url` still uses the repo-local stdio browser bridge directly. `news_browse_summary` now runs through the real Pi harness while keeping the existing noVNC/API/raw-port boundaries intact.
+
+### Following live task progress
+
+After submitting a `news_browse_summary` task, use the returned `taskId` with any of these host-side commands:
+
+```sh
+curl -N "http://127.0.0.1:8080/v1/tasks/${TASK_ID}/events"
+curl -fsS "http://127.0.0.1:8080/v1/tasks/${TASK_ID}/progress?lines=200"
+curl -fsS "http://127.0.0.1:8080/v1/tasks/${TASK_ID}/transcript?lines=50"
+```
+
+Use `events` for push-style updates, `progress` for a condensed text log, and `transcript` for the raw Pi session JSONL mirror.
 
 
 ### Runtime hardening baseline
