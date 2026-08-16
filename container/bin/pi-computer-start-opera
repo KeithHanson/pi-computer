@@ -82,12 +82,17 @@ if manifest.get('browserProduct') != 'opera-stable':
     raise SystemExit(f"browserProduct {manifest.get('browserProduct')!r} is unsupported; pi-computer imports only opera-stable exports")
 if manifest.get('sourceClosed') is not True:
     raise SystemExit('sourceClosed must be true; close the source browser before exporting')
-profile_last = str(manifest.get('profileLastOperaVersion') or manifest.get('browserVersion') or '')
-if not profile_last:
-    raise SystemExit('profileLastOperaVersion/browserVersion missing from export manifest')
-profile_major = profile_last.split('.', 1)[0]
-if profile_major != current_major:
-    raise SystemExit(f'profile version family {profile_last} does not match installed opera-stable major {current_major}')
+browser_version = str(manifest.get('browserVersion') or '')
+profile_last = str(manifest.get('profileLastOperaVersion') or browser_version or '')
+if not browser_version:
+    raise SystemExit('browserVersion missing from export manifest')
+browser_major = browser_version.split('.', 1)[0]
+if browser_major != current_major:
+    raise SystemExit(f'export browser version family {browser_version} does not match installed opera-stable major {current_major}')
+if profile_last:
+    profile_major = profile_last.split('.', 1)[0]
+    if profile_major != browser_major:
+        raise SystemExit(f'profile version family {profile_last} does not match export browser version family {browser_version}')
 PY
   if [ "${exit_code:-0}" -ne 0 ]; then
     fatal_profile_import "$(python3 - "${manifest_path}" "${current_major}" <<'PY'
@@ -101,12 +106,17 @@ try:
         raise SystemExit(f"browserProduct {manifest.get('browserProduct')!r} is unsupported; pi-computer imports only opera-stable exports")
     if manifest.get('sourceClosed') is not True:
         raise SystemExit('sourceClosed must be true; close the source browser before exporting')
-    profile_last = str(manifest.get('profileLastOperaVersion') or manifest.get('browserVersion') or '')
-    if not profile_last:
-        raise SystemExit('profileLastOperaVersion/browserVersion missing from export manifest')
-    profile_major = profile_last.split('.', 1)[0]
-    if profile_major != current_major:
-        raise SystemExit(f'profile version family {profile_last} does not match installed opera-stable major {current_major}')
+    browser_version = str(manifest.get('browserVersion') or '')
+    profile_last = str(manifest.get('profileLastOperaVersion') or browser_version or '')
+    if not browser_version:
+        raise SystemExit('browserVersion missing from export manifest')
+    browser_major = browser_version.split('.', 1)[0]
+    if browser_major != current_major:
+        raise SystemExit(f'export browser version family {browser_version} does not match installed opera-stable major {current_major}')
+    if profile_last:
+        profile_major = profile_last.split('.', 1)[0]
+        if profile_major != browser_major:
+            raise SystemExit(f'profile version family {profile_last} does not match export browser version family {browser_version}')
 except SystemExit as exc:
     print(exc, end='')
 PY
@@ -126,9 +136,29 @@ if prefs.exists():
             unsupported.append('opera.oauth2.session.refresh_token')
     except Exception:
         unsupported.append('unreadable Default/Preferences')
-for rel in ['Default/Login Data', 'Default/Login Data For Account', 'Default/Cookies', 'Default/Network/Cookies']:
-    if (base / rel).exists():
-        unsupported.append(rel)
+for rel, tables in [
+    ('Default/Login Data', ['logins', 'stats']),
+    ('Default/Login Data For Account', ['logins', 'stats']),
+    ('Default/Cookies', ['cookies']),
+    ('Default/Network/Cookies', ['cookies']),
+]:
+    path = base / rel
+    if not path.exists():
+        continue
+    try:
+        conn = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+        try:
+            table_names = {row[0] for row in conn.execute("select name from sqlite_master where type='table'")}
+            counts = []
+            for table in tables:
+                if table in table_names:
+                    counts.append(conn.execute(f'select count(*) from "{table}"').fetchone()[0])
+            if any(counts):
+                unsupported.append(rel)
+        finally:
+            conn.close()
+    except Exception:
+        unsupported.append(f'unreadable {rel}')
 if unsupported:
     print(', '.join(unsupported), end='')
     raise SystemExit(1)
@@ -137,7 +167,7 @@ PY
     :
   else
     fatal_profile_import "export contains authenticated secret/session stores ($(python3 - "${export_profile_dir}" <<'PY'
-import json, pathlib, sys
+import json, pathlib, sqlite3, sys
 base = pathlib.Path(sys.argv[1])
 unsupported = []
 prefs = base / 'Default' / 'Preferences'
@@ -149,9 +179,29 @@ if prefs.exists():
             unsupported.append('opera.oauth2.session.refresh_token')
     except Exception:
         unsupported.append('unreadable Default/Preferences')
-for rel in ['Default/Login Data', 'Default/Login Data For Account', 'Default/Cookies', 'Default/Network/Cookies']:
-    if (base / rel).exists():
-        unsupported.append(rel)
+for rel, tables in [
+    ('Default/Login Data', ['logins', 'stats']),
+    ('Default/Login Data For Account', ['logins', 'stats']),
+    ('Default/Cookies', ['cookies']),
+    ('Default/Network/Cookies', ['cookies']),
+]:
+    path = base / rel
+    if not path.exists():
+        continue
+    try:
+        conn = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+        try:
+            table_names = {row[0] for row in conn.execute("select name from sqlite_master where type='table'")}
+            counts = []
+            for table in tables:
+                if table in table_names:
+                    counts.append(conn.execute(f'select count(*) from "{table}"').fetchone()[0])
+            if any(counts):
+                unsupported.append(rel)
+        finally:
+            conn.close()
+    except Exception:
+        unsupported.append(f'unreadable {rel}')
 print(', '.join(unsupported), end='')
 PY
 )); re-export only non-auth browser state or sign in again inside the container"

@@ -72,7 +72,7 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - Compose allocates `1gb` `/dev/shm` for browser stability.
 - Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, loopback VNC readiness/no IPv6 VNC reachability, CDP `/json/version`, and a non-mutating browser websocket readiness probe across the Runtime and Page CDP domains without wildcard CDP binding.
 - Host-accessible runtime logs are written to `./runtime-logs/` by default.
-- Host profile import is fail-fast and supports only a closed exported `opera-stable` snapshot created by `scripts/export-opera-profile.sh`; raw live profile mounts and authenticated session stores are rejected.
+- Host profile import is fail-fast and supports only a closed exported `opera-stable` snapshot created by `scripts/export-opera-profile.sh`; raw live profile mounts are rejected, empty profile DB files are allowed, and populated authenticated/session stores are rejected.
 
 ### Quick start
 
@@ -117,7 +117,7 @@ Secondary symptoms: importing a live profile or mixing Opera channels/version fa
 Supported import workflow:
 
 1. Close the source Opera browser first.
-2. Export a closed `opera-stable` snapshot on the host:
+2. Export a closed `opera-stable` snapshot on the host. The exporter allows normal empty Opera DB files from a signed-out closed profile, but still rejects populated login/session stores:
    ```sh
    ./scripts/export-opera-profile.sh --source /absolute/path/to/opera-profile --dest ./operator/opera-profile-export --browser-product opera-stable
    ```

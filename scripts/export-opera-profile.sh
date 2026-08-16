@@ -57,7 +57,7 @@ for lock_name in SingletonLock SingletonCookie SingletonSocket; do
 done
 
 auth_markers="$({ python3 - "$source_dir" <<'PY'
-import json, pathlib, sys
+import json, pathlib, sqlite3, sys
 base = pathlib.Path(sys.argv[1])
 markers = []
 prefs = base / 'Default' / 'Preferences'
@@ -69,9 +69,29 @@ if prefs.exists():
             markers.append('opera.oauth2.session.refresh_token')
     except Exception:
         markers.append('unreadable Default/Preferences')
-for rel in ['Default/Login Data', 'Default/Login Data For Account', 'Default/Cookies', 'Default/Network/Cookies']:
-    if (base / rel).exists():
-        markers.append(rel)
+for rel, tables in [
+    ('Default/Login Data', ['logins', 'stats']),
+    ('Default/Login Data For Account', ['logins', 'stats']),
+    ('Default/Cookies', ['cookies']),
+    ('Default/Network/Cookies', ['cookies']),
+]:
+    path = base / rel
+    if not path.exists():
+        continue
+    try:
+        conn = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+        try:
+            table_names = {row[0] for row in conn.execute("select name from sqlite_master where type='table'")}
+            counts = []
+            for table in tables:
+                if table in table_names:
+                    counts.append(conn.execute(f'select count(*) from "{table}"').fetchone()[0])
+            if any(counts):
+                markers.append(rel)
+        finally:
+            conn.close()
+    except Exception:
+        markers.append(f'unreadable {rel}')
 print(', '.join(markers), end='')
 PY
 } || true)"
@@ -87,7 +107,7 @@ value = ''
 prefs = base / 'Default' / 'Preferences'
 if prefs.exists():
     obj = json.loads(prefs.read_text())
-    value = str(obj.get('extensions', {}).get('last_opera_version', '') or '')
+    value = str(obj.get('profile', {}).get('created_by_version', '') or '')
 if not value:
     local_state = base / 'Local State'
     if local_state.exists():
@@ -95,15 +115,28 @@ if not value:
         last = obj.get('last_version')
         if isinstance(last, list):
             value = '.'.join(str(part) for part in last[:4])
+        elif isinstance(last, str):
+            value = last
 print(value)
 PY
 } || true)"
 
 if [ -z "$browser_version" ]; then
-  if command -v opera >/dev/null 2>&1; then
-    browser_version="$(opera --version | awk '{print $NF}')"
-  else
+  if [ -n "$profile_last_version" ]; then
     browser_version="$profile_last_version"
+  elif command -v opera >/dev/null 2>&1; then
+    browser_version="$(opera --version | awk '{print $NF}')"
+  fi
+fi
+
+[ -n "$browser_version" ] || { echo 'could not determine source browser version; pass --browser-version with the source opera-stable version family' >&2; exit 1; }
+
+if [ -n "$profile_last_version" ]; then
+  profile_major="${profile_last_version%%.*}"
+  browser_major="${browser_version%%.*}"
+  if [ "$profile_major" != "$browser_major" ]; then
+    echo "source profile version family $profile_last_version does not match requested/exported browser version $browser_version" >&2
+    exit 1
   fi
 fi
 
@@ -111,6 +144,7 @@ staging_dir="${dest_dir}.tmp.$$"
 rm -rf "$staging_dir"
 mkdir -p "$staging_dir/profile"
 tar -C "$source_dir" -cf - . | tar -C "$staging_dir/profile" -xf -
+rm -f "$staging_dir/profile/SingletonLock" "$staging_dir/profile/SingletonCookie" "$staging_dir/profile/SingletonSocket" "$staging_dir/profile/oauc_pipe"
 
 python3 - "$staging_dir/pi-computer-profile-export.json" "$source_dir" "$browser_product" "$browser_version" "$profile_last_version" <<'PY'
 import json, pathlib, socket, sys
