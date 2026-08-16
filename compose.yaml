@@ -9,7 +9,7 @@ services:
     read_only: true
     shm_size: "1gb"
     pids_limit: 1024
-    mem_limit: "2g"
+    mem_limit: "4g"
     cpus: "2.0"
     cap_drop:
       - ALL
