@@ -22,6 +22,8 @@ const MAX_EVENT_CHUNK_BYTES = Number(process.env.PI_HARNESS_EVENT_CHUNK_BYTES ||
 const RUNTIME_LOG_DIR = process.env.PI_COMPUTER_RUNTIME_LOG_DIR || '/var/log/pi-computer';
 const DEFAULT_RUNTIME_LOG_LINES = Number(process.env.PI_COMPUTER_RUNTIME_LOG_LINES || 200);
 const MAX_RUNTIME_LOG_LINES = Number(process.env.PI_COMPUTER_RUNTIME_LOG_MAX_LINES || 1000);
+const PI_TRANSCRIPT_POLL_MS = Math.max(100, Number(process.env.PI_HARNESS_TRANSCRIPT_POLL_MS || 500));
+const PI_TRANSCRIPT_TAIL_BYTES = Math.max(1024, Number(process.env.PI_HARNESS_TRANSCRIPT_TAIL_BYTES || 262144));
 const BRIDGE = process.env.BROWSER_MCP_BRIDGE || '/usr/local/bin/pi-computer-browser-mcp';
 const PI_BIN = process.env.PI_HARNESS_BIN || '/usr/local/bin/pi';
 const PI_MCP_CONFIG = process.env.PI_HARNESS_MCP_CONFIG || '/home/pi/.config/mcp/mcp.json';
@@ -40,7 +42,10 @@ function taskDir(taskId) { return path.join(STORE_DIR, taskId); }
 function taskPath(taskId) { return path.join(taskDir(taskId), 'task.json'); }
 function eventsPath(taskId) { return path.join(taskDir(taskId), 'events.jsonl'); }
 function artifactsDir(taskId) { return path.join(taskDir(taskId), 'artifacts'); }
+function progressLogPath(taskId) { return path.join(taskDir(taskId), 'progress.log'); }
+function transcriptMirrorPath(taskId) { return path.join(taskDir(taskId), 'pi-session.jsonl'); }
 function runtimeLogPath(name) { return path.join(RUNTIME_LOG_DIR, name); }
+function taskSessionDir(taskId) { return path.join(PI_SESSION_DIR, taskId); }
 
 function publicTask(task) {
   return {
@@ -57,6 +62,8 @@ function publicTask(task) {
     artifacts: task.artifacts || [],
     error: task.error || null,
     eventsUrl: `/v1/tasks/${task.taskId}/events`,
+    progressUrl: `/v1/tasks/${task.taskId}/progress?lines=${DEFAULT_RUNTIME_LOG_LINES}`,
+    transcriptUrl: `/v1/tasks/${task.taskId}/transcript?lines=${DEFAULT_RUNTIME_LOG_LINES}`,
   };
 }
 
@@ -97,6 +104,15 @@ function chunkText(text, maxBytes = MAX_EVENT_CHUNK_BYTES) {
   return chunks.length ? chunks : [''];
 }
 
+function appendBridgeLog(chunk) {
+  try {
+    require('fs').mkdirSync(LOG_DIR, { recursive: true });
+    require('fs').appendFileSync(BRIDGE_LOG, `[${now()}] ${chunk}`);
+  } catch (_) {
+    // Ignore log write failures so task execution still reports the primary browser error.
+  }
+}
+
 async function emitTextEvents(task, type, text) {
   for (const chunk of chunkText(text)) {
     await emitEvent(task, type, { text: chunk });
@@ -114,6 +130,206 @@ async function readTailLines(filePath, lineCount) {
   const lines = text.split(/\r?\n/);
   const trimmed = lines[lines.length - 1] === '' ? lines.slice(0, -1) : lines;
   return trimmed.slice(-lineCount).join('\n');
+}
+
+async function copyFileIfExists(fromPath, toPath) {
+  try {
+    await fs.mkdir(path.dirname(toPath), { recursive: true });
+    await fs.copyFile(fromPath, toPath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
+
+function truncateText(text, maxChars = 240) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  return normalized.length > maxChars ? `${normalized.slice(0, maxChars - 1)}…` : normalized;
+}
+
+function summarizeToolArguments(args) {
+  const source = args && typeof args === 'object' ? args : {};
+  const summary = {};
+  if (typeof source.url === 'string') summary.url = source.url;
+  if (typeof source.title === 'string') summary.title = source.title;
+  if (typeof source.selector === 'string') summary.selector = source.selector;
+  if (typeof source.text === 'string') summary.text = truncateText(source.text, 160);
+  if (!Object.keys(summary).length) return truncateText(JSON.stringify(source), 200);
+  return truncateText(JSON.stringify(summary), 200);
+}
+
+function textFromContent(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => {
+      if (part?.type === 'text' && typeof part.text === 'string') return part.text;
+      if (part?.type === 'thinking' && typeof part.thinking === 'string') return part.thinking;
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function formatTranscriptEntry(entry) {
+  if (!entry || entry.type !== 'message' || !entry.message) return [];
+  const message = entry.message;
+  if (message.role === 'assistant' && Array.isArray(message.content)) {
+    const lines = [];
+    for (const part of message.content) {
+      if (part?.type === 'toolCall') {
+        lines.push({
+          type: 'pi.progress',
+          data: {
+            source: 'transcript',
+            category: 'tool_call',
+            toolName: part.name,
+            text: `Pi called ${part.name}${part.arguments ? ` ${summarizeToolArguments(part.arguments)}` : ''}`,
+          },
+        });
+      } else if (part?.type === 'text' && typeof part.text === 'string') {
+        const text = truncateText(part.text, 240);
+        if (text && !text.startsWith('{')) {
+          lines.push({ type: 'pi.progress', data: { source: 'transcript', category: 'assistant', text: `Pi: ${text}` } });
+        }
+      }
+    }
+    return lines;
+  }
+  if (message.role === 'toolResult') {
+    const toolText = truncateText(textFromContent(message.content), 200);
+    const suffix = toolText ? ` -> ${toolText}` : '';
+    return [{
+      type: 'pi.progress',
+      data: {
+        source: 'transcript',
+        category: 'tool_result',
+        toolName: message.toolName,
+        isError: message.isError === true,
+        text: `Pi received ${message.toolName} result${message.isError ? ' (error)' : ''}${suffix}`,
+      },
+    }];
+  }
+  if (message.role === 'custom') {
+    const text = truncateText(textFromContent(message.content), 240);
+    if (!text) return [];
+    return [{ type: 'pi.progress', data: { source: 'transcript', category: 'custom', customType: message.customType, text: `Pi ${message.customType}: ${text}` } }];
+  }
+  if (message.role === 'bashExecution') {
+    return [{ type: 'pi.progress', data: { source: 'transcript', category: 'bash', text: `Pi ran bash: ${truncateText(message.command, 160)}` } }];
+  }
+  return [];
+}
+
+async function appendProgressLine(task, text) {
+  const line = `[${now()}] ${text}`;
+  await fs.mkdir(taskDir(task.taskId), { recursive: true });
+  await fs.appendFile(progressLogPath(task.taskId), `${line}\n`);
+}
+
+async function emitProgressLine(task, text, extra = {}) {
+  await appendProgressLine(task, text);
+  await emitEvent(task, 'pi.progress', { text, ...extra });
+}
+
+async function discoverSessionFile(sessionDir) {
+  const entries = await fs.readdir(sessionDir, { withFileTypes: true }).catch(() => []);
+  const files = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+    .map((entry) => path.join(sessionDir, entry.name))
+    .sort();
+  return files[0] || null;
+}
+
+function startPiTranscriptMonitor(task, sessionDir) {
+  let stopped = false;
+  let busy = false;
+  let sessionFile = null;
+  let offset = 0;
+  let buffer = '';
+  const seenMessages = new Set();
+
+  async function processLine(line) {
+    if (!line.trim()) return;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      return;
+    }
+    if (entry?.id && seenMessages.has(entry.id)) return;
+    if (entry?.id) seenMessages.add(entry.id);
+    for (const progressEvent of formatTranscriptEntry(entry)) {
+      await emitProgressLine(task, progressEvent.data.text, progressEvent.data);
+    }
+  }
+
+  async function syncMirror(fromPath) {
+    await copyFileIfExists(fromPath, transcriptMirrorPath(task.taskId));
+  }
+
+  async function tick(force = false) {
+    if ((stopped && !force) || busy) return;
+    busy = true;
+    try {
+      if (!sessionFile) {
+        sessionFile = await discoverSessionFile(sessionDir);
+        if (sessionFile) {
+          task.runner = task.runner || {};
+          task.runner.sessionDir = sessionDir;
+          task.runner.sessionFile = sessionFile;
+          task.runner.transcriptMirror = transcriptMirrorPath(task.taskId);
+          await persist(task);
+          await emitProgressLine(task, `Pi session transcript discovered at ${task.runner.transcriptMirror}`, {
+            source: 'transcript',
+            category: 'session',
+            transcriptMirror: task.runner.transcriptMirror,
+          });
+          await syncMirror(sessionFile);
+        }
+      }
+      if (!sessionFile) return;
+      const handle = await fs.open(sessionFile, 'r');
+      try {
+        const stat = await handle.stat();
+        if (stat.size <= offset) return;
+        const toRead = Math.min(stat.size - offset, PI_TRANSCRIPT_TAIL_BYTES);
+        if (toRead < stat.size - offset) {
+          offset = stat.size - toRead;
+          buffer = '';
+        }
+        const buf = Buffer.alloc(toRead);
+        await handle.read(buf, 0, toRead, offset);
+        offset += toRead;
+        buffer += buf.toString('utf8');
+      } finally {
+        await handle.close();
+      }
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        await processLine(line);
+      }
+      await syncMirror(sessionFile);
+    } finally {
+      busy = false;
+    }
+  }
+
+  const timer = setInterval(() => { tick().catch(() => {}); }, PI_TRANSCRIPT_POLL_MS);
+  timer.unref();
+  tick().catch(() => {});
+
+  return {
+    async stop() {
+      clearInterval(timer);
+      await tick(true).catch(() => {});
+      stopped = true;
+      if (sessionFile && buffer.trim()) await processLine(buffer);
+      if (sessionFile) await syncMirror(sessionFile);
+      return { sessionFile };
+    },
+  };
 }
 
 function send(res, status, body, headers = {}) {
@@ -134,15 +350,6 @@ async function readJson(req) {
   }
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-}
-
-function appendBridgeLog(chunk) {
-  try {
-    require('fs').mkdirSync(LOG_DIR, { recursive: true });
-    require('fs').appendFileSync(BRIDGE_LOG, `[${now()}] ${chunk}`);
-  } catch (_) {
-    // Ignore log write failures so task execution still reports the primary browser error.
-  }
 }
 
 function validateRequest(body) {
@@ -316,7 +523,8 @@ function runProcess(command, args, timeoutMs, options = {}) {
 async function runPiNewsTask(task) {
   const timeoutMs = task.request.timeoutSeconds * 1000;
   const prompt = buildNewsPrompt(task);
-  const piArgs = ['-p', '--no-builtin-tools', '--no-context-files', '--no-skills', '--no-prompt-templates', '--no-themes', '--session-dir', PI_SESSION_DIR];
+  const sessionDir = taskSessionDir(task.taskId);
+  const piArgs = ['-p', '--no-builtin-tools', '--no-context-files', '--no-skills', '--no-prompt-templates', '--no-themes', '--session-dir', sessionDir];
   if (PI_PROVIDER) piArgs.push('--provider', PI_PROVIDER);
   if (PI_MODEL) piArgs.push('--model', PI_MODEL);
   piArgs.push(prompt);
@@ -328,23 +536,44 @@ async function runPiNewsTask(task) {
     mcpConfig: PI_MCP_CONFIG,
     mcpConfigMode: 'ambient_discovery',
     browserMcpServer: 'opera-devtools',
+    sessionDir,
+    transcriptMirror: transcriptMirrorPath(task.taskId),
   };
   await persist(task);
-  await emitEvent(task, 'runner.selected', { runner: task.runner.kind, command: task.runner.command, browserMcpServer: 'opera-devtools', mcpConfig: PI_MCP_CONFIG, mcpConfigMode: 'ambient_discovery' });
+  await emitEvent(task, 'runner.selected', { runner: task.runner.kind, command: task.runner.command, browserMcpServer: 'opera-devtools', mcpConfig: PI_MCP_CONFIG, mcpConfigMode: 'ambient_discovery', sessionDir, transcriptMirror: task.runner.transcriptMirror });
   await emitEvent(task, 'pi.started', { command: PI_BIN });
+  await emitProgressLine(task, `Started Pi news task; follow ${publicTask(task).eventsUrl}, ${publicTask(task).progressUrl}, or ${publicTask(task).transcriptUrl}`, { source: 'task_api', category: 'start' });
 
   const workDir = taskDir(task.taskId);
   await fs.mkdir(workDir, { recursive: true });
-  const result = await runProcess(PI_BIN, piArgs, timeoutMs, {
-    cwd: workDir,
-    env: { ...process.env, HOME: process.env.HOME || '/home/pi' },
-    onStdout: (text) => { emitTextEvents(task, 'pi.stdout', text).catch(() => {}); },
-    onStderr: (text) => { emitTextEvents(task, 'pi.stderr', text).catch(() => {}); },
-  });
+  await fs.mkdir(sessionDir, { recursive: true });
+  const transcriptMonitor = startPiTranscriptMonitor(task, sessionDir);
+  let result;
+  try {
+    result = await runProcess(PI_BIN, piArgs, timeoutMs, {
+      cwd: workDir,
+      env: { ...process.env, HOME: process.env.HOME || '/home/pi' },
+      onStdout: (text) => { emitTextEvents(task, 'pi.stdout', text).catch(() => {}); },
+      onStderr: (text) => { emitTextEvents(task, 'pi.stderr', text).catch(() => {}); },
+    });
+  } finally {
+    const transcriptState = await transcriptMonitor.stop();
+    if (transcriptState.sessionFile) {
+      task.runner.sessionFile = transcriptState.sessionFile;
+      await persist(task);
+    }
+  }
   await emitEvent(task, 'pi.completed', { exitCode: 0, stdoutBytes: Buffer.byteLength(result.stdout), stderrBytes: Buffer.byteLength(result.stderr) });
+  await emitProgressLine(task, 'Pi process exited successfully; finalizing artifacts.', { source: 'task_api', category: 'completion' });
 
   const rawArtifact = await writeArtifact(task, 'pi-harness-output.txt', result.stdout, 'text/plain');
   const stderrArtifact = await writeArtifact(task, 'pi-harness-stderr.txt', result.stderr, 'text/plain');
+  const progressArtifact = await writeArtifact(task, 'progress.log', await fs.readFile(progressLogPath(task.taskId), 'utf8'), 'text/plain');
+  let transcriptArtifact = null;
+  if (task.runner?.transcriptMirror) {
+    const transcriptText = await fs.readFile(task.runner.transcriptMirror, 'utf8').catch(() => '');
+    if (transcriptText) transcriptArtifact = await writeArtifact(task, 'pi-session.jsonl', transcriptText, 'application/jsonl');
+  }
   const parsed = extractJsonObject(result.stdout);
   const summaryArtifact = await writeArtifact(task, 'news-summary.json', {
     request: task.request,
@@ -363,7 +592,7 @@ async function runPiNewsTask(task) {
     articleCount: Array.isArray(parsed.articleSummaries) ? parsed.articleSummaries.length : 0,
     aggregateSummary: parsed.aggregateSummary || null,
     limitations: parsed.limitations || [],
-    artifactIds: [summaryArtifact.artifactId, rawArtifact.artifactId, stderrArtifact.artifactId],
+    artifactIds: [summaryArtifact.artifactId, rawArtifact.artifactId, stderrArtifact.artifactId, progressArtifact.artifactId].concat(transcriptArtifact ? [transcriptArtifact.artifactId] : []),
   };
 }
 
@@ -427,8 +656,17 @@ function routeMatch(pathname) {
   const task = pathname.match(/^\/v1\/tasks\/([^/]+)$/);
   const cancel = pathname.match(/^\/v1\/tasks\/([^/]+)\/cancel$/);
   const events = pathname.match(/^\/v1\/tasks\/([^/]+)\/events$/);
+  const progress = pathname.match(/^\/v1\/tasks\/([^/]+)\/progress$/);
+  const transcript = pathname.match(/^\/v1\/tasks\/([^/]+)\/transcript$/);
   const runtimeLog = pathname.match(/^\/v1\/runtime\/logs\/([A-Za-z0-9._-]+)$/);
-  return { taskId: task && task[1], cancelId: cancel && cancel[1], eventsId: events && events[1], runtimeLogName: runtimeLog && runtimeLog[1] };
+  return {
+    taskId: task && task[1],
+    cancelId: cancel && cancel[1],
+    eventsId: events && events[1],
+    progressId: progress && progress[1],
+    transcriptId: transcript && transcript[1],
+    runtimeLogName: runtimeLog && runtimeLog[1],
+  };
 }
 
 async function handler(req, res) {
@@ -439,7 +677,7 @@ async function handler(req, res) {
       service: 'pi-computer-api',
       storeDir: STORE_DIR,
       activeTaskId,
-      piHarness: { bin: PI_BIN, mcpConfig: PI_MCP_CONFIG, mcpConfigMode: 'ambient_discovery' },
+      piHarness: { bin: PI_BIN, mcpConfig: PI_MCP_CONFIG, mcpConfigMode: 'ambient_discovery', sessionDir: PI_SESSION_DIR },
       runtimeLogs: {
         dir: RUNTIME_LOG_DIR,
         available: ['api.err.log', 'api.log', 'opera.err.log', 'opera.log', 'opera-browser.log', 'supervisord.log', 'xvfb.err.log', 'xvfb.log'],
@@ -476,6 +714,29 @@ async function handler(req, res) {
       if (!sseClients.has(task.taskId)) sseClients.set(task.taskId, new Set());
       sseClients.get(task.taskId).add(res);
       req.on('close', () => sseClients.get(task.taskId)?.delete(res));
+      return;
+    }
+    if (req.method === 'GET' && match.progressId) {
+      const task = tasks.get(match.progressId); if (!task) return sendError(res, 404, 'task not found');
+      const lines = parsePositiveInt(url.searchParams.get('lines'), DEFAULT_RUNTIME_LOG_LINES, MAX_RUNTIME_LOG_LINES);
+      const text = await readTailLines(progressLogPath(task.taskId), lines).catch((error) => {
+        if (error.code === 'ENOENT') return '';
+        throw error;
+      });
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end(text ? `${text}\n` : '');
+      return;
+    }
+    if (req.method === 'GET' && match.transcriptId) {
+      const task = tasks.get(match.transcriptId); if (!task) return sendError(res, 404, 'task not found');
+      const lines = parsePositiveInt(url.searchParams.get('lines'), DEFAULT_RUNTIME_LOG_LINES, MAX_RUNTIME_LOG_LINES);
+      const filePath = task.runner?.transcriptMirror || transcriptMirrorPath(task.taskId);
+      const text = await readTailLines(filePath, lines).catch((error) => {
+        if (error.code === 'ENOENT') return '';
+        throw error;
+      });
+      res.writeHead(200, { 'content-type': 'application/jsonl; charset=utf-8' });
+      res.end(text ? `${text}\n` : '');
       return;
     }
     if (req.method === 'GET' && match.runtimeLogName) {

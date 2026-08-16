@@ -81,7 +81,7 @@ Response: `202` with a task document and `Location: /v1/tasks/<taskId>`.
 
 ### `GET /v1/tasks/:taskId`
 
-Returns status, timestamps, request echo, selected runner metadata, result summary, artifact manifest, and any categorized error.
+Returns status, timestamps, request echo, selected runner metadata, result summary, artifact manifest, any categorized error, plus host-tail-friendly `progressUrl` and `transcriptUrl` links.
 
 Task states used by this implementation: `queued`, `starting`, `running`, `cancelling`, `succeeded`, `failed`, and `cancelled`.
 
@@ -89,7 +89,19 @@ Task states used by this implementation: `queued`, `starting`, `running`, `cance
 
 Streams task events as unauthenticated Server-Sent Events (`text/event-stream`). Events include state transitions plus runner milestones such as `runner.selected`, `browser.navigate`, `pi.started`, and `pi.completed`.
 
-For `news_browse_summary`, the API now also emits incremental `pi.stdout` and `pi.stderr` events while the Pi harness is still running, so an operator can watch the bounded harness output live instead of waiting only for terminal artifacts.
+For `news_browse_summary`, the primary live progress now comes from the Pi session transcript while the harness is still running:
+
+- `pi.progress` emits operator-readable progress lines derived from transcript entries such as MCP tool calls/results and notable assistant updates;
+- `pi.stdout` / `pi.stderr` remain available as secondary low-level process output;
+- the task document exposes `progressUrl` and `transcriptUrl` so the same live data can be tailed from the host without opening a shell in the container.
+
+### `GET /v1/tasks/:taskId/progress?lines=<n>`
+
+Returns the last `n` lines of the task's operator-facing progress log as plain text (`text/plain`). For `news_browse_summary` this log is built from live Pi transcript entries, not just final process stdout/stderr.
+
+### `GET /v1/tasks/:taskId/transcript?lines=<n>`
+
+Returns the last `n` lines of the mirrored raw Pi session JSONL transcript as `application/jsonl`. This is useful when the operator wants the exact persisted Pi session stream rather than the condensed progress log.
 
 ### `GET /v1/runtime/logs/:name?lines=<n>`
 
@@ -122,28 +134,51 @@ Task state and artifacts are persisted under:
 /home/pi/pi-computer/tasks/<taskId>/
   task.json
   events.jsonl
+  progress.log
+  pi-session.jsonl
   artifacts/<artifactId>-browser-observation.json
   artifacts/<artifactId>-news-summary.json
   artifacts/<artifactId>-pi-harness-output.txt
   artifacts/<artifactId>-pi-harness-stderr.txt
+  artifacts/<artifactId>-progress.log
+  artifacts/<artifactId>-pi-session.jsonl
 ```
 
 `open_url` writes a browser observation artifact with CDP version metadata, navigation response, and targets. `news_browse_summary` writes:
 
 - the structured summary JSON returned through the Pi harness;
+- a live-updated `progress.log` distilled from transcript events;
+- a mirrored raw Pi session transcript (`pi-session.jsonl`);
 - raw Pi stdout;
 - Pi stderr for troubleshooting.
 
-For live observation during a running task, prefer `GET /v1/tasks/:taskId/events` and filter for `pi.stdout` / `pi.stderr`.
+For live observation during a running task, prefer either `GET /v1/tasks/:taskId/events` and filter for `pi.progress`, or tail `GET /v1/tasks/:taskId/progress?lines=200`. Reach for `transcriptUrl` when you need the exact JSONL transcript.
 
 API responses include artifact IDs and metadata only; operators can inspect the local store out of band with `docker compose exec`.
+
+## Operator workflow for live progress
+
+Start a task, capture its `taskId`, then either stream events or tail the text progress endpoint:
+
+```sh
+TASK_ID="task_..."
+curl -N "http://127.0.0.1:8080/v1/tasks/${TASK_ID}/events"
+curl -fsS "http://127.0.0.1:8080/v1/tasks/${TASK_ID}/progress?lines=200"
+curl -fsS "http://127.0.0.1:8080/v1/tasks/${TASK_ID}/transcript?lines=50"
+```
+
+Recommended order:
+
+1. use `events` when you want push-style live updates;
+2. use `progress` when you want a host-tail-friendly text log;
+3. use `transcript` when you need the raw persisted Pi session JSONL.
 
 ## Limitations
 
 - The bounded natural-language task currently targets Google News traversal/summarization only; it is not a general remote browser automation surface.
 - The Pi harness run is constrained by prompt design and CLI flags, but browser prompt-injection risk still exists within the visited pages.
 - noVNC operator access remains loopback-published for local development and still relies on host/network controls.
-- The container now resets Opera to a fresh runtime profile/cache on each browser start to avoid stale-tab and profile-corruption reuse across restarts, but fully isolated per-task browser profile orchestration is still not implemented.
+- Per-task ephemeral browser profile orchestration is still not implemented.
 
 ## Runtime hardening defaults
 
