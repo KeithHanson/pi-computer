@@ -3,9 +3,9 @@ set -euo pipefail
 
 agent_dir="${HOME}/.pi/agent"
 host_auth_file="${PI_HOST_AUTH_FILE:-/opt/pi-host-auth/auth.json}"
-mcp_config="${PI_HARNESS_MCP_CONFIG:-${HOME}/.mcp.json}"
+mcp_config="${PI_HARNESS_MCP_CONFIG:-${HOME}/.config/mcp/mcp.json}"
 
-mkdir -p "${agent_dir}" "${agent_dir}/sessions"
+mkdir -p "${agent_dir}" "${agent_dir}/sessions" "$(dirname "${mcp_config}")"
 
 if [ -s "${host_auth_file}" ]; then
   cp "${host_auth_file}" "${agent_dir}/auth.json"
@@ -30,4 +30,4 @@ auth_state="missing"
 if [ -f "${agent_dir}/auth.json" ]; then
   auth_state="present"
 fi
-echo "pi bootstrap ready: auth=${auth_state} mcp_config=${mcp_config}"
+echo "pi bootstrap ready: auth=${auth_state} mcp_config=${mcp_config} mode=ambient_shared_config"

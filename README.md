@@ -174,7 +174,7 @@ See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, req
 ./scripts/smoke-api.sh
 ```
 
-The API is intentionally declarative. It accepts a simple `open_url` smoke task plus a bounded `news_browse_summary` task that routes a human-English instruction through the real Pi harness with `pi-mcp-adapter` and the local Opera browser MCP path. It does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or arbitrary Pi CLI arguments.
+The API is intentionally declarative. It accepts a simple `open_url` smoke task plus a bounded `news_browse_summary` task that routes a human-English instruction through the real Pi harness with `pi-mcp-adapter` and the local Opera browser MCP path. The richer task uses the installed adapter's ambient shared-config discovery via `/home/pi/.config/mcp/mcp.json` rather than passing `--mcp-config`. It does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or arbitrary Pi CLI arguments.
 
 For local validation with existing Pi authentication, point `.env` at the host auth file only:
 

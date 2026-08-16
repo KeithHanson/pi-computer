@@ -29,7 +29,8 @@ poll_task() {
 }
 
 echo "checking API health at ${API_BASE}/healthz"
-curl -fsS "${API_BASE}/healthz" >/dev/null
+health_json="$(curl -fsS "${API_BASE}/healthz")"
+printf '%s' "${health_json}" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["piHarness"]["mcpConfigMode"] == "ambient_discovery", d; print("pi_harness_mcp_config=" + d["piHarness"]["mcpConfig"])'
 
 echo "submitting open_url smoke task"
 submit_json="$(curl -fsS -X POST "${API_BASE}/v1/tasks" -H 'content-type: application/json' -d '{"taskType":"open_url","startUrl":"https://example.com/","instruction":"Open example.com for smoke validation.","timeoutSeconds":60,"profilePolicy":"ephemeral"}')"
@@ -55,7 +56,7 @@ news_submit_json="$(curl -fsS -X POST "${API_BASE}/v1/tasks" -H 'content-type: a
 news_task_id="$(printf '%s' "${news_submit_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["taskId"])')"
 echo "news_task_id=${news_task_id}"
 news_status_json="$(poll_task "${news_task_id}" 180)"
-printf '%s' "${news_status_json}" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["runner"]["kind"] == "pi_harness", d; assert d["result"]["runner"] == "pi_harness", d; assert d["result"]["articleCount"] >= 1, d; assert d["result"]["artifactIds"], d; print("news_artifact_ids=" + ",".join(d["result"]["artifactIds"]))'
+printf '%s' "${news_status_json}" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["runner"]["kind"] == "pi_harness", d; assert d["runner"]["mcpConfigMode"] == "ambient_discovery", d; assert d["result"]["runner"] == "pi_harness", d; assert d["result"]["articleCount"] >= 1, d; assert d["result"]["artifactIds"], d; print("news_artifact_ids=" + ",".join(d["result"]["artifactIds"]))'
 
 echo "checking unauthenticated SSE endpoint headers"
 set +e

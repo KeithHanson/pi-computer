@@ -41,7 +41,7 @@ services:
       API_PORT: "8080"
       PI_COMPUTER_TASK_STORE: "/home/pi/pi-computer/tasks"
       PI_HARNESS_BIN: "/usr/local/bin/pi"
-      PI_HARNESS_MCP_CONFIG: "/home/pi/.mcp.json"
+      PI_HARNESS_MCP_CONFIG: "/home/pi/.config/mcp/mcp.json"
       PI_HARNESS_PROVIDER: "${PI_HARNESS_PROVIDER:-openai-codex}"
       PI_HARNESS_MODEL: "${PI_HARNESS_MODEL:-gpt-5.4}"
       PI_HARNESS_SESSION_DIR: "/home/pi/pi-computer/pi-sessions"

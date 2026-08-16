@@ -18,7 +18,7 @@ const MAX_PI_INSTRUCTION = Number(process.env.PI_HARNESS_MAX_INSTRUCTION_CHARS |
 const MAX_NEWS_ARTICLES = Math.max(1, Number(process.env.PI_BROWSER_TASK_MAX_ARTICLES || 5));
 const BRIDGE = process.env.BROWSER_MCP_BRIDGE || '/usr/local/bin/pi-computer-browser-mcp';
 const PI_BIN = process.env.PI_HARNESS_BIN || '/usr/local/bin/pi';
-const PI_MCP_CONFIG = process.env.PI_HARNESS_MCP_CONFIG || '/home/pi/.mcp.json';
+const PI_MCP_CONFIG = process.env.PI_HARNESS_MCP_CONFIG || '/home/pi/.config/mcp/mcp.json';
 const PI_PROVIDER = process.env.PI_HARNESS_PROVIDER || '';
 const PI_MODEL = process.env.PI_HARNESS_MODEL || '';
 const PI_SESSION_DIR = process.env.PI_HARNESS_SESSION_DIR || '/home/pi/pi-computer/pi-sessions';
@@ -249,7 +249,7 @@ function runProcess(command, args, timeoutMs, options = {}) {
 async function runPiNewsTask(task) {
   const timeoutMs = task.request.timeoutSeconds * 1000;
   const prompt = buildNewsPrompt(task);
-  const piArgs = ['-p', '--no-builtin-tools', '--no-context-files', '--no-skills', '--no-prompt-templates', '--no-themes', '--mcp-config', PI_MCP_CONFIG, '--session-dir', PI_SESSION_DIR];
+  const piArgs = ['-p', '--no-builtin-tools', '--no-context-files', '--no-skills', '--no-prompt-templates', '--no-themes', '--session-dir', PI_SESSION_DIR];
   if (PI_PROVIDER) piArgs.push('--provider', PI_PROVIDER);
   if (PI_MODEL) piArgs.push('--model', PI_MODEL);
   piArgs.push(prompt);
@@ -259,10 +259,11 @@ async function runPiNewsTask(task) {
     command: PI_BIN,
     args: piArgs.filter((arg) => arg !== prompt).concat(['<prompt>']),
     mcpConfig: PI_MCP_CONFIG,
+    mcpConfigMode: 'ambient_discovery',
     browserMcpServer: 'opera-devtools',
   };
   await persist(task);
-  await emitEvent(task, 'runner.selected', { runner: task.runner.kind, command: task.runner.command, browserMcpServer: 'opera-devtools' });
+  await emitEvent(task, 'runner.selected', { runner: task.runner.kind, command: task.runner.command, browserMcpServer: 'opera-devtools', mcpConfig: PI_MCP_CONFIG, mcpConfigMode: 'ambient_discovery' });
   await emitEvent(task, 'pi.started', { command: PI_BIN });
 
   const workDir = taskDir(task.taskId);
@@ -359,7 +360,7 @@ function routeMatch(pathname) {
 async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (req.method === 'GET' && url.pathname === '/healthz') {
-    return send(res, 200, { ok: true, service: 'pi-computer-api', storeDir: STORE_DIR, activeTaskId, piHarness: { bin: PI_BIN, mcpConfig: PI_MCP_CONFIG } });
+    return send(res, 200, { ok: true, service: 'pi-computer-api', storeDir: STORE_DIR, activeTaskId, piHarness: { bin: PI_BIN, mcpConfig: PI_MCP_CONFIG, mcpConfigMode: 'ambient_discovery' } });
   }
   const match = routeMatch(url.pathname);
   try {

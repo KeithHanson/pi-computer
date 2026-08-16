@@ -21,7 +21,7 @@ ENV DISPLAY=:1 \
     API_PORT=8080 \
     PI_COMPUTER_TASK_STORE=/home/pi/pi-computer/tasks \
     PI_HARNESS_BIN=/usr/local/bin/pi \
-    PI_HARNESS_MCP_CONFIG=/home/pi/.mcp.json \
+    PI_HARNESS_MCP_CONFIG=/home/pi/.config/mcp/mcp.json \
     PI_HARNESS_PROVIDER=openai-codex \
     PI_HARNESS_MODEL=gpt-5.4 \
     PI_HARNESS_SESSION_DIR=/home/pi/pi-computer/pi-sessions \
@@ -68,7 +68,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends opera-stable \
     && groupadd --gid "${GID}" "${USERNAME}" \
     && useradd --uid "${UID}" --gid "${GID}" --create-home --shell /bin/bash "${USERNAME}" \
-    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/Downloads /home/pi/pi-computer/pi-sessions /home/pi/.pi/agent/npm \
+    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/.config/mcp /home/pi/Downloads /home/pi/pi-computer/pi-sessions /home/pi/.pi/agent/npm \
     && printf '{\n  "defaultProvider": "openai-codex",\n  "defaultModel": "gpt-5.4",\n  "packages": [\n    "npm:pi-mcp-adapter"\n  ]\n}\n' > /home/pi/.pi/agent/settings.json \
     && printf '{"name":"pi-extensions","private":true,"dependencies":{"pi-mcp-adapter":"^%s"}}\n' "${PI_MCP_ADAPTER_VERSION}" > /home/pi/.pi/agent/npm/package.json \
     && npm --prefix /home/pi/.pi/agent/npm install \

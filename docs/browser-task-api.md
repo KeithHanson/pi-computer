@@ -12,9 +12,9 @@ The image installs and uses:
 
 - the Pi harness CLI at `/usr/local/bin/pi`;
 - `pi-mcp-adapter` in the container Pi agent environment;
-- `opera-devtools-mcp` configured through `/home/pi/.mcp.json` to target `http://127.0.0.1:9222`.
+- `opera-devtools-mcp` configured through the standard shared MCP file `/home/pi/.config/mcp/mcp.json` to target `http://127.0.0.1:9222`.
 
-At container start, `/usr/local/bin/pi-computer-bootstrap-pi` imports only `auth.json` from an optional host-provided auth-only bind mount and writes the container MCP config. It does **not** import host prompts, skills, sessions, subagents, or broader Pi settings.
+At container start, `/usr/local/bin/pi-computer-bootstrap-pi` imports only `auth.json` from an optional host-provided auth-only bind mount and writes the shared MCP config that `pi-mcp-adapter` auto-discovers for this Pi version. The richer task path does not pass `--mcp-config`; it relies on supported ambient config discovery. Bootstrap does **not** import host prompts, skills, sessions, subagents, or broader Pi settings.
 
 Use `.env.example` as the template for local setup. If you want the container to reuse host Pi authentication, create a narrow directory containing only `auth.json` and set:
 
@@ -28,7 +28,7 @@ That single host file is mounted read-only at `/opt/pi-host-auth/auth.json` and 
 
 ### `GET /healthz`
 
-Returns API readiness, task store path, and the configured Pi harness binary/MCP config path.
+Returns API readiness, task store path, and the configured Pi harness binary/MCP config path plus config-discovery mode.
 
 ### `POST /v1/tasks`
 
@@ -73,6 +73,7 @@ Behavior:
 - the landing page is fixed to Google News;
 - the caller supplies a natural-language instruction only, not raw browser commands;
 - the API builds a bounded Pi prompt, runs `pi -p` with only MCP-backed browser access, and expects structured JSON back;
+- the Pi run uses the installed `pi-mcp-adapter` shared-config discovery path instead of an explicit `--mcp-config` flag;
 - `maxArticles` is capped server-side;
 - callers cannot pass shell commands, raw MCP messages, raw CDP commands, filesystem paths, environment variables, or arbitrary Pi CLI flags.
 
