@@ -71,12 +71,15 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - A Node.js browser-task API is published on host loopback by default: `127.0.0.1:8080` (override `API_HOST_PORT`).
 - Compose allocates `1gb` `/dev/shm` for browser stability.
 - Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, loopback VNC readiness/no IPv6 VNC reachability, CDP `/json/version`, and a non-mutating browser websocket readiness probe across the Runtime and Page CDP domains without wildcard CDP binding.
+- Host-accessible runtime logs are written to `./runtime-logs/` by default.
+- Host profile import is fail-fast and supports only a closed exported `opera-stable` snapshot created by `scripts/export-opera-profile.sh`; raw live profile mounts and authenticated session stores are rejected.
 
 ### Quick start
 
 Build and start locally:
 
 ```sh
+mkdir -p runtime-logs operator/opera-profile-export
 docker compose build pi-computer
 docker compose up -d pi-computer
 ```
@@ -84,7 +87,7 @@ docker compose up -d pi-computer
 Watch startup and health:
 
 ```sh
-docker compose logs -f pi-computer
+tail -F runtime-logs/*.log
 docker compose ps pi-computer
 ```
 
@@ -106,6 +109,21 @@ Remove the persisted browser home volume if you want a clean profile:
 docker compose down -v
 ```
 
+### Supported host profile workflow
+
+Primary blocker: authenticated Opera login/session state is not reliably portable by raw profile copy across machines or installs.
+Secondary symptoms: importing a live profile or mixing Opera channels/version families makes restore even less reliable.
+
+Supported import workflow:
+
+1. Close the source Opera browser first.
+2. Export a closed `opera-stable` snapshot on the host:
+   ```sh
+   ./scripts/export-opera-profile.sh --source /absolute/path/to/opera-profile --dest ./operator/opera-profile-export --browser-product opera-stable
+   ```
+3. Start the container with the default export mount or override `HOST_OPERA_PROFILE_EXPORT_DIR`.
+4. If you need an authenticated session, sign in inside the container and keep the named `/home/pi` volume. Imported host login state is intentionally rejected.
+
 ### Runtime validation commands
 
 Useful checks after `docker compose up -d`:
@@ -117,6 +135,7 @@ docker compose exec pi-computer nc -vz 127.0.0.1 5900
 # This should fail because container IPv6 is disabled and x11vnc must not listen on :::5900:
 docker compose exec pi-computer nc -vz ::1 5900
 docker compose exec pi-computer curl -fsS http://127.0.0.1:9222/json/version
+cat runtime-logs/profile-import-error.log
 ./scripts/smoke-cdp.sh
 ./scripts/smoke-browser-mcp.sh
 ./scripts/smoke-host-boundary.sh

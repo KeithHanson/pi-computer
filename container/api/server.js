@@ -10,7 +10,9 @@ const { spawn } = require('child_process');
 
 const HOST = process.env.API_HOST || '0.0.0.0';
 const PORT = Number(process.env.API_PORT || 8080);
-const STORE_DIR = process.env.PI_COMPUTER_TASK_STORE || '/home/pi/pi-computer/tasks';
+const STORE_DIR = process.env.PI_COMPUTER_TASK_STORE || '/home/pi/pi-computer-tasks';
+const LOG_DIR = process.env.PI_COMPUTER_LOG_DIR || '/home/pi/pi-computer-logs';
+const BRIDGE_LOG = path.join(LOG_DIR, 'browser-mcp.log');
 const MAX_BODY = Number(process.env.API_MAX_BODY_BYTES || 16384);
 const DEFAULT_TIMEOUT = Number(process.env.TASK_TIMEOUT_SECONDS || 60);
 const MAX_TIMEOUT = Number(process.env.TASK_MAX_TIMEOUT_SECONDS || 300);
@@ -102,6 +104,15 @@ function validateRequest(body) {
   return { taskType, startUrl: parsed.toString(), instruction: body.instruction || '', timeoutSeconds, profilePolicy };
 }
 
+function appendBridgeLog(chunk) {
+  try {
+    fss.mkdirSync(LOG_DIR, { recursive: true });
+    fss.appendFileSync(BRIDGE_LOG, `[${now()}] ${chunk}`);
+  } catch (_) {
+    // Ignore bridge log write failures so the primary browser error still surfaces.
+  }
+}
+
 function callBridge(method, params, timeoutMs) {
   return new Promise((resolve, reject) => {
     const child = spawn(BRIDGE, [], { stdio: ['pipe', 'pipe', 'pipe'], env: process.env });
@@ -131,7 +142,11 @@ function callBridge(method, params, timeoutMs) {
       finish(reject, new Error(`browser bridge timed out after ${timeoutMs}ms: ${err}`));
     }, timeoutMs);
     child.stdout.on('data', (d) => { out += d.toString(); tryResolve(); });
-    child.stderr.on('data', (d) => { err += d.toString(); });
+    child.stderr.on('data', (d) => {
+      const text = d.toString();
+      err += text;
+      appendBridgeLog(text);
+    });
     child.on('error', (e) => finish(reject, e));
     child.on('close', () => {
       if (settled) return;
@@ -188,6 +203,7 @@ async function runTask(task) {
 
 async function loadExisting() {
   await fs.mkdir(STORE_DIR, { recursive: true });
+  await fs.mkdir(LOG_DIR, { recursive: true });
   const entries = await fs.readdir(STORE_DIR, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;

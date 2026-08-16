@@ -1,0 +1,7 @@
+session.screen0.rootCommand:	fbsetroot -solid "#1e1e1e"
+session.styleFile:	/usr/share/fluxbox/styles/bloe
+session.menuFile:	/opt/pi-computer/fluxbox-menu
+session.screen0.toolbar.visible:	false
+session.screen0.iconbar.mode:	{static groups}
+session.screen0.strftimeFormat:	%k:%M
+session.configVersion:	13
