@@ -47,6 +47,9 @@ services:
       PI_HARNESS_SESSION_DIR: "/home/pi/pi-computer/pi-sessions"
       PI_HARNESS_MAX_INSTRUCTION_CHARS: "4000"
       PI_BROWSER_TASK_MAX_ARTICLES: "${PI_BROWSER_TASK_MAX_ARTICLES:-5}"
+      OPERA_PROFILE_DIR: "/home/pi/pi-computer/runtime/opera-profile"
+      OPERA_CACHE_DIR: "/home/pi/pi-computer/runtime/opera-cache"
+      OPERA_START_FRESH: "1"
       PI_HOST_AUTH_FILE: "/opt/pi-host-auth/auth.json"
     security_opt:
       - no-new-privileges:true

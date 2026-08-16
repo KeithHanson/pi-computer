@@ -12,7 +12,7 @@ The MVP is a single-user, single-tenant browser-agent appliance:
 - Opera launched with a task-scoped profile and loopback-only Chrome DevTools Protocol (CDP);
 - an internal Opera/browser MCP setup exposed only to Pi, not to public callers;
 - a loopback-published Node.js task API for declarative browser requests;
-- one active task per container at first, with ephemeral profiles by default;
+- one active task per container at first, with fresh runtime Opera profile/cache reset on browser start and ephemeral profiles by default;
 - loopback-published API and noVNC access by default, with host/network boundaries as the protection layer.
 
 The first concrete consumer is `daily-briefing`, but the project should remain reusable for other browser-task workflows.

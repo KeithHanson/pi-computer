@@ -7,17 +7,27 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 profile_dir="${OPERA_PROFILE_DIR:-${HOME}/.config/opera}"
+cache_dir="${OPERA_CACHE_DIR:-${HOME}/.cache/opera}"
 cdp_host="${CDP_HOST:-127.0.0.1}"
 cdp_port="${CDP_PORT:-9222}"
 chrome_log_file="${OPERA_CHROME_LOG_FILE:-/var/log/pi-computer/opera-browser.log}"
-mkdir -p "${profile_dir}" "$(dirname "${chrome_log_file}")"
+start_fresh="${OPERA_START_FRESH:-1}"
+
+if [ "${start_fresh}" = "1" ]; then
+  rm -rf "${profile_dir}" "${cache_dir}"
+fi
+mkdir -p "${profile_dir}" "${cache_dir}" "$(dirname "${chrome_log_file}")"
 rm -f "${profile_dir}/SingletonLock" "${profile_dir}/SingletonSocket" "${profile_dir}/SingletonCookie"
+: > "${chrome_log_file}"
+printf 'pi-computer-start-opera: profile_dir=%s cache_dir=%s start_fresh=%s\n' "${profile_dir}" "${cache_dir}" "${start_fresh}"
 export CHROME_LOG_FILE="${chrome_log_file}"
+export XDG_CACHE_HOME="${cache_dir}"
 exec dbus-run-session -- /usr/bin/opera \
   --no-first-run \
   --disable-default-apps \
   --disable-dev-shm-usage=false \
   --disable-gpu \
+  --disable-session-crashed-bubble \
   --enable-logging=stderr \
   --v=1 \
   --no-sandbox \

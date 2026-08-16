@@ -143,7 +143,7 @@ API responses include artifact IDs and metadata only; operators can inspect the 
 - The bounded natural-language task currently targets Google News traversal/summarization only; it is not a general remote browser automation surface.
 - The Pi harness run is constrained by prompt design and CLI flags, but browser prompt-injection risk still exists within the visited pages.
 - noVNC operator access remains loopback-published for local development and still relies on host/network controls.
-- Per-task ephemeral browser profile orchestration is still not implemented.
+- The container now resets Opera to a fresh runtime profile/cache on each browser start to avoid stale-tab and profile-corruption reuse across restarts, but fully isolated per-task browser profile orchestration is still not implemented.
 
 ## Runtime hardening defaults
 
