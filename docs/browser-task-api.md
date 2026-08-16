@@ -19,10 +19,10 @@ At container start, `/usr/local/bin/pi-computer-bootstrap-pi` imports only `auth
 Use `.env.example` as the template for local setup. If you want the container to reuse host Pi authentication, create a narrow directory containing only `auth.json` and set:
 
 ```dotenv
-HOST_PI_AUTH_DIR=/absolute/path/to/auth-export
+HOST_PI_AUTH_JSON=/absolute/path/to/auth.json
 ```
 
-That directory is mounted read-only at `/opt/pi-host-auth` and consumed only during bootstrap.
+That single host file is mounted read-only at `/opt/pi-host-auth/auth.json` and consumed only during bootstrap.
 
 ## Endpoints
 

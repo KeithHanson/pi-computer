@@ -24,8 +24,8 @@ services:
     volumes:
       - pi-computer-home:/home/pi
       - type: bind
-        source: ${HOST_PI_AUTH_DIR:-./container/host-pi-agent-placeholder}
-        target: /opt/pi-host-auth
+        source: ${HOST_PI_AUTH_JSON:-./container/host-pi-agent-placeholder/auth.json}
+        target: /opt/pi-host-auth/auth.json
         read_only: true
     environment:
       SCREEN_WIDTH: "1280"
@@ -47,7 +47,7 @@ services:
       PI_HARNESS_SESSION_DIR: "/home/pi/pi-computer/pi-sessions"
       PI_HARNESS_MAX_INSTRUCTION_CHARS: "4000"
       PI_BROWSER_TASK_MAX_ARTICLES: "${PI_BROWSER_TASK_MAX_ARTICLES:-5}"
-      PI_HOST_AUTH_DIR: "/opt/pi-host-auth"
+      PI_HOST_AUTH_FILE: "/opt/pi-host-auth/auth.json"
     security_opt:
       - no-new-privileges:true
     sysctls:

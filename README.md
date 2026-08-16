@@ -87,20 +87,19 @@ docker compose up -d pi-computer
 The image now bootstraps Pi in a narrowly scoped way for browser-task validation:
 
 1. The image preconfigures Pi to load `pi-mcp-adapter` and points `/home/pi/.mcp.json` at the local `opera-devtools-mcp` server for browser work.
-2. For local validation, mount only a narrow host directory containing `auth.json` by setting `HOST_PI_AUTH_DIR`; `/usr/local/bin/pi-computer-bootstrap-pi` copies only that file into `/home/pi/.pi/agent` on startup.
+2. For local validation, mount only the host `auth.json` file by setting `HOST_PI_AUTH_JSON`; `/usr/local/bin/pi-computer-bootstrap-pi` copies only that file into `/home/pi/.pi/agent/auth.json` on startup.
 3. Use `.env.example` to override the bounded browser-task provider/model via `PI_HARNESS_PROVIDER`, `PI_HARNESS_MODEL`, and `PI_BROWSER_TASK_MAX_ARTICLES`.
 
 Recommended local first run:
 
 ```sh
-cp ~/.pi/agent/auth.json ~/.pi/auth-export/auth.json
 cp .env.example .env
 $EDITOR .env
 
 docker compose up -d --build pi-computer
 ```
 
-Set `HOST_PI_AUTH_DIR` in `.env` to that auth-only directory. Do not mount the broader host `~/.pi/agent` directory into the container.
+Set `HOST_PI_AUTH_JSON` in `.env` to the host auth file path, for example `/home/keith/.pi/agent/auth.json`. Do not mount the broader host `~/.pi/agent` directory into the container.
 
 Verify the harness and auth state inside the container:
 
@@ -177,15 +176,14 @@ See [`docs/browser-task-api.md`](docs/browser-task-api.md) for access model, req
 
 The API is intentionally declarative. It accepts a simple `open_url` smoke task plus a bounded `news_browse_summary` task that routes a human-English instruction through the real Pi harness with `pi-mcp-adapter` and the local Opera browser MCP path. It does not expose arbitrary shell, raw CDP commands, raw MCP messages, filesystem paths, environment variables, or arbitrary Pi CLI arguments.
 
-For local validation with existing Pi authentication, copy only `auth.json` into a narrow host directory and point `.env` at it:
+For local validation with existing Pi authentication, point `.env` at the host auth file only:
 
 ```sh
-cp ~/.pi/agent/auth.json ~/.pi/auth-export/auth.json
 cp .env.example .env
 $EDITOR .env
 ```
 
-Set `HOST_PI_AUTH_DIR` to that auth-only directory. Do not mount the broader host `~/.pi/agent` directory into the container.
+Set `HOST_PI_AUTH_JSON` to the host auth file path. Do not mount the broader host `~/.pi/agent` directory into the container.
 
 ## Current Pi integration boundary
 

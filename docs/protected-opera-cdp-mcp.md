@@ -36,7 +36,7 @@ The container now ships the real Pi CLI (`/usr/local/bin/pi`) on Node.js 22. Pi 
 Bootstrap paths:
 
 - The image preconfigures Pi to load `pi-mcp-adapter` and uses `/home/pi/.mcp.json` to point `opera-devtools-mcp` at `http://127.0.0.1:9222`.
-- A read-only auth-only host mount at `/opt/pi-host-auth` when `HOST_PI_AUTH_DIR` is set; `/usr/local/bin/pi-computer-bootstrap-pi` copies only `auth.json` into `/home/pi/.pi/agent`.
+- A read-only host bind for a single `auth.json` file at `/opt/pi-host-auth/auth.json` when `HOST_PI_AUTH_JSON` is set; `/usr/local/bin/pi-computer-bootstrap-pi` copies only that file into `/home/pi/.pi/agent/auth.json`.
 - Local `.env` overrides can select the bounded task provider/model through `PI_HARNESS_PROVIDER`, `PI_HARNESS_MODEL`, and `PI_BROWSER_TASK_MAX_ARTICLES`.
 
 Useful checks:

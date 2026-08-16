@@ -2,13 +2,13 @@
 set -euo pipefail
 
 agent_dir="${HOME}/.pi/agent"
-host_auth_dir="${PI_HOST_AUTH_DIR:-/opt/pi-host-auth}"
+host_auth_file="${PI_HOST_AUTH_FILE:-/opt/pi-host-auth/auth.json}"
 mcp_config="${PI_HARNESS_MCP_CONFIG:-${HOME}/.mcp.json}"
 
 mkdir -p "${agent_dir}" "${agent_dir}/sessions"
 
-if [ -f "${host_auth_dir}/auth.json" ]; then
-  cp "${host_auth_dir}/auth.json" "${agent_dir}/auth.json"
+if [ -s "${host_auth_file}" ]; then
+  cp "${host_auth_file}" "${agent_dir}/auth.json"
   chmod 600 "${agent_dir}/auth.json"
 fi
 
