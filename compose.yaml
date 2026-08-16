@@ -28,8 +28,8 @@ services:
         target: /opt/pi-host-auth/auth.json
         read_only: true
       - type: bind
-        source: ${HOST_OPERA_PROFILE_DIR:-./operator/opera-profile}
-        target: /mnt/host-opera-profile
+        source: ${HOST_OPERA_PROFILE_EXPORT_DIR:-./operator/opera-profile-export}
+        target: /mnt/host-opera-profile-export
         read_only: true
         bind:
           create_host_path: true
@@ -62,7 +62,7 @@ services:
       XDG_DATA_HOME: "/home/pi/.data"
       OPERA_PROFILE_DIR: "/home/pi/.config/opera"
       OPERA_FROZEN_PROFILE_DIR: "/home/pi/opera-profile-frozen"
-      OPERA_HOST_PROFILE_SOURCE_DIR: "/mnt/host-opera-profile"
+      OPERA_HOST_PROFILE_EXPORT_DIR: "/mnt/host-opera-profile-export"
       PI_HOST_AUTH_FILE: "/opt/pi-host-auth/auth.json"
     security_opt:
       - no-new-privileges:true

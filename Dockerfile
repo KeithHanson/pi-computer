@@ -32,7 +32,7 @@ ENV DISPLAY=:1 \
     PI_HOST_AUTH_DIR=/opt/pi-host-auth \
     OPERA_PROFILE_DIR=/home/pi/.config/opera \
     OPERA_FROZEN_PROFILE_DIR=/home/pi/opera-profile-frozen \
-    OPERA_HOST_PROFILE_SOURCE_DIR=/mnt/host-opera-profile \
+    OPERA_HOST_PROFILE_EXPORT_DIR=/mnt/host-opera-profile-export \
     SCREEN_WIDTH=1280 \
     SCREEN_HEIGHT=800 \
     SCREEN_DEPTH=24 \
@@ -44,7 +44,7 @@ ENV DISPLAY=:1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates curl wget xz-utils gnupg apt-transport-https \
-      dumb-init supervisor procps net-tools netcat-openbsd socat rsync \
+      dumb-init supervisor procps net-tools netcat-openbsd socat rsync feh \
       python3 python3-websocket \
       xvfb x11-utils x11vnc fluxbox dbus-x11 gsettings-desktop-schemas \
       novnc websockify \
@@ -74,11 +74,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends opera-stable \
     && groupadd --gid "${GID}" "${USERNAME}" \
     && useradd --uid "${UID}" --gid "${GID}" --create-home --shell /bin/bash "${USERNAME}" \
-    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/.config/mcp /home/pi/.data /home/pi/Downloads /home/pi/pi-computer/pi-sessions /home/pi/pi-computer-logs /home/pi/opera-profile-frozen /mnt/host-opera-profile /home/pi/.pi/agent/npm \
+    && mkdir -p /var/log/pi-computer /var/run/pi-computer /home/pi/.config/opera /home/pi/.config/mcp /home/pi/.data /home/pi/Downloads /home/pi/pi-computer/pi-sessions /home/pi/pi-computer-logs /home/pi/opera-profile-frozen /mnt/host-opera-profile-export /home/pi/.pi/agent/npm \
     && printf '{\n  "defaultProvider": "openai-codex",\n  "defaultModel": "gpt-5.4",\n  "packages": [\n    "npm:pi-mcp-adapter"\n  ]\n}\n' > /home/pi/.pi/agent/settings.json \
     && printf '{"name":"pi-extensions","private":true,"dependencies":{"pi-mcp-adapter":"^%s"}}\n' "${PI_MCP_ADAPTER_VERSION}" > /home/pi/.pi/agent/npm/package.json \
     && npm --prefix /home/pi/.pi/agent/npm install \
-    && chown -R "${USERNAME}:${USERNAME}" /var/log/pi-computer /var/run/pi-computer /home/pi /mnt/host-opera-profile \
+    && chown -R "${USERNAME}:${USERNAME}" /var/log/pi-computer /var/run/pi-computer /home/pi /mnt/host-opera-profile-export \
     && node --version \
     && pi --version \
     && apt-get clean \
@@ -89,6 +89,8 @@ COPY container/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 COPY container/bin/ /usr/local/bin/
 COPY container/api/ /opt/pi-computer/api/
 COPY container/novnc-gate/ /opt/pi-computer/novnc-gate/
+COPY container/fluxbox-init /opt/pi-computer/fluxbox-init
+COPY container/fluxbox-menu /opt/pi-computer/fluxbox-menu
 RUN chmod +x /usr/local/bin/pi-computer-* /opt/pi-computer/api/server.js /opt/pi-computer/novnc-gate/server.js
 
 USER pi

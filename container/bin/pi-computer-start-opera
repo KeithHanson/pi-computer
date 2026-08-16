@@ -6,17 +6,37 @@ for _ in $(seq 1 60); do
   fi
   sleep 1
 done
+
 profile_dir="${OPERA_PROFILE_DIR:-${HOME}/.config/opera}"
 cache_dir="${OPERA_CACHE_DIR:-${HOME}/.cache/opera}"
 frozen_dir="${OPERA_FROZEN_PROFILE_DIR:-${HOME}/opera-profile-frozen}"
-host_profile_dir="${OPERA_HOST_PROFILE_SOURCE_DIR:-/mnt/host-opera-profile}"
+host_export_dir="${OPERA_HOST_PROFILE_EXPORT_DIR:-/mnt/host-opera-profile-export}"
 log_dir="${PI_COMPUTER_LOG_DIR:-${HOME}/pi-computer-logs}"
 xdg_data_home="${XDG_DATA_HOME:-${HOME}/.data}"
+manifest_name="pi-computer-profile-export.json"
 cdp_host="${CDP_HOST:-127.0.0.1}"
 cdp_port="${CDP_PORT:-9222}"
 chrome_log_file="${OPERA_CHROME_LOG_FILE:-${log_dir}/opera-browser.log}"
+error_log="${log_dir}/profile-import-error.log"
 
 mkdir -p "$(dirname "${profile_dir}")" "$(dirname "${cache_dir}")" "$(dirname "${frozen_dir}")" "${log_dir}" "${xdg_data_home}" "${xdg_data_home}/pki/nssdb"
+: > "${error_log}"
+
+note() {
+  echo "$*" >&2
+}
+
+fatal_profile_import() {
+  local message="$1"
+  {
+    printf 'profile import blocked: %s\n' "${message}"
+    printf 'primary blocker: authenticated Opera login/session state is not reliably portable by raw profile copy across machines or installs.\n'
+    printf 'secondary symptoms: live profile locks and Opera channel/version mismatch make restore less reliable and must be rejected.\n'
+    printf 'supported workflow: mount a closed exported snapshot created by scripts/export-opera-profile.sh, keep the source browser closed first, and match the container browser channel/version family (opera-stable).\n'
+    printf 'if you need an authenticated session, sign in inside the container and keep the named /home/pi volume instead of importing host login state.\n'
+  } | tee -a "${error_log}" >&2
+  exit 78
+}
 
 has_entries() {
   local dir="$1"
@@ -36,16 +56,172 @@ replace_tree() {
   mv "${tmp}" "${dst}"
 }
 
-if has_entries "${host_profile_dir}"; then
-  echo "refreshing frozen Opera profile from host source ${host_profile_dir} -> ${frozen_dir}" >&2
-  replace_tree "${host_profile_dir}" "${frozen_dir}"
-fi
+current_version="$(/usr/bin/opera --version | awk '{print $NF}')"
+current_major="${current_version%%.*}"
+
+validate_and_stage_host_export() {
+  local manifest_path="${host_export_dir}/${manifest_name}"
+  local export_profile_dir="${host_export_dir}/profile"
+  local exit_code=0
+
+  if ! has_entries "${host_export_dir}"; then
+    return 0
+  fi
+
+  if [ ! -f "${manifest_path}" ] || [ ! -d "${export_profile_dir}" ]; then
+    fatal_profile_import "unsupported host profile source at ${host_export_dir}; expected ${manifest_name} plus a profile/ directory from scripts/export-opera-profile.sh, not a raw mounted browser profile"
+  fi
+
+  if find "${export_profile_dir}" -maxdepth 1 \( -name 'SingletonLock' -o -name 'SingletonCookie' -o -name 'SingletonSocket' \) -print -quit | grep -q .; then
+    fatal_profile_import "exported profile still contains Singleton lock files; close the source browser and re-export"
+  fi
+
+  python3 - "${manifest_path}" "${current_major}" <<'PY' || exit_code=$?
+import json, pathlib, sys
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+current_major = sys.argv[2]
+if manifest.get('schemaVersion') != 1:
+    raise SystemExit('manifest schemaVersion must be 1')
+if manifest.get('browserProduct') != 'opera-stable':
+    raise SystemExit(f"browserProduct {manifest.get('browserProduct')!r} is unsupported; pi-computer imports only opera-stable exports")
+if manifest.get('sourceClosed') is not True:
+    raise SystemExit('sourceClosed must be true; close the source browser before exporting')
+browser_version = str(manifest.get('browserVersion') or '')
+profile_last = str(manifest.get('profileLastOperaVersion') or browser_version or '')
+if not browser_version:
+    raise SystemExit('browserVersion missing from export manifest')
+browser_major = browser_version.split('.', 1)[0]
+if browser_major != current_major:
+    raise SystemExit(f'export browser version family {browser_version} does not match installed opera-stable major {current_major}')
+if profile_last:
+    profile_major = profile_last.split('.', 1)[0]
+    if profile_major != browser_major:
+        raise SystemExit(f'profile version family {profile_last} does not match export browser version family {browser_version}')
+PY
+  if [ "${exit_code}" -ne 0 ]; then
+    fatal_profile_import "$(python3 - "${manifest_path}" "${current_major}" <<'PY'
+import json, pathlib, sys
+try:
+    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+    current_major = sys.argv[2]
+    if manifest.get('schemaVersion') != 1:
+        raise SystemExit('manifest schemaVersion must be 1')
+    if manifest.get('browserProduct') != 'opera-stable':
+        raise SystemExit(f"browserProduct {manifest.get('browserProduct')!r} is unsupported; pi-computer imports only opera-stable exports")
+    if manifest.get('sourceClosed') is not True:
+        raise SystemExit('sourceClosed must be true; close the source browser before exporting')
+    browser_version = str(manifest.get('browserVersion') or '')
+    profile_last = str(manifest.get('profileLastOperaVersion') or browser_version or '')
+    if not browser_version:
+        raise SystemExit('browserVersion missing from export manifest')
+    browser_major = browser_version.split('.', 1)[0]
+    if browser_major != current_major:
+        raise SystemExit(f'export browser version family {browser_version} does not match installed opera-stable major {current_major}')
+    if profile_last:
+        profile_major = profile_last.split('.', 1)[0]
+        if profile_major != browser_major:
+            raise SystemExit(f'profile version family {profile_last} does not match export browser version family {browser_version}')
+except SystemExit as exc:
+    print(exc, end='')
+PY
+)"
+  fi
+
+  if python3 - "${export_profile_dir}" <<'PY'
+import json, pathlib, sqlite3, sys
+base = pathlib.Path(sys.argv[1])
+unsupported = []
+prefs = base / 'Default' / 'Preferences'
+if prefs.exists():
+    try:
+        obj = json.loads(prefs.read_text())
+        refresh = str(obj.get('opera', {}).get('oauth2', {}).get('session', {}).get('refresh_token', '') or '')
+        if refresh:
+            unsupported.append('opera.oauth2.session.refresh_token')
+    except Exception:
+        unsupported.append('unreadable Default/Preferences')
+for rel, tables in [
+    ('Default/Login Data', ['logins', 'stats']),
+    ('Default/Login Data For Account', ['logins', 'stats']),
+    ('Default/Cookies', ['cookies']),
+    ('Default/Network/Cookies', ['cookies']),
+]:
+    path = base / rel
+    if not path.exists():
+        continue
+    try:
+        conn = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+        try:
+            table_names = {row[0] for row in conn.execute("select name from sqlite_master where type='table'")}
+            counts = []
+            for table in tables:
+                if table in table_names:
+                    counts.append(conn.execute(f'select count(*) from "{table}"').fetchone()[0])
+            if any(counts):
+                unsupported.append(rel)
+        finally:
+            conn.close()
+    except Exception:
+        unsupported.append(f'unreadable {rel}')
+if unsupported:
+    print(', '.join(unsupported), end='')
+    raise SystemExit(1)
+PY
+  then
+    :
+  else
+    fatal_profile_import "export contains authenticated secret/session stores ($(python3 - "${export_profile_dir}" <<'PY'
+import json, pathlib, sqlite3, sys
+base = pathlib.Path(sys.argv[1])
+unsupported = []
+prefs = base / 'Default' / 'Preferences'
+if prefs.exists():
+    try:
+        obj = json.loads(prefs.read_text())
+        refresh = str(obj.get('opera', {}).get('oauth2', {}).get('session', {}).get('refresh_token', '') or '')
+        if refresh:
+            unsupported.append('opera.oauth2.session.refresh_token')
+    except Exception:
+        unsupported.append('unreadable Default/Preferences')
+for rel, tables in [
+    ('Default/Login Data', ['logins', 'stats']),
+    ('Default/Login Data For Account', ['logins', 'stats']),
+    ('Default/Cookies', ['cookies']),
+    ('Default/Network/Cookies', ['cookies']),
+]:
+    path = base / rel
+    if not path.exists():
+        continue
+    try:
+        conn = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+        try:
+            table_names = {row[0] for row in conn.execute("select name from sqlite_master where type='table'")}
+            counts = []
+            for table in tables:
+                if table in table_names:
+                    counts.append(conn.execute(f'select count(*) from "{table}"').fetchone()[0])
+            if any(counts):
+                unsupported.append(rel)
+        finally:
+            conn.close()
+    except Exception:
+        unsupported.append(f'unreadable {rel}')
+print(', '.join(unsupported), end='')
+PY
+)); re-export only non-auth browser state or sign in again inside the container"
+  fi
+
+  note "refreshing frozen Opera profile from supported host export ${host_export_dir} -> ${frozen_dir}"
+  replace_tree "${export_profile_dir}" "${frozen_dir}"
+}
+
+validate_and_stage_host_export
 
 rm -rf "${cache_dir}"
 mkdir -p "${cache_dir}"
 
 if has_entries "${frozen_dir}"; then
-  echo "restoring live Opera profile from frozen snapshot ${frozen_dir} -> ${profile_dir}" >&2
+  note "restoring live Opera profile from frozen snapshot ${frozen_dir} -> ${profile_dir}"
   replace_tree "${frozen_dir}" "${profile_dir}"
 else
   rm -rf "${profile_dir}"
@@ -57,6 +233,7 @@ rm -f "${profile_dir}/SingletonLock" "${profile_dir}/SingletonSocket" "${profile
 printf 'pi-computer-start-opera: profile_dir=%s cache_dir=%s frozen_dir=%s\n' "${profile_dir}" "${cache_dir}" "${frozen_dir}"
 export CHROME_LOG_FILE="${chrome_log_file}"
 export XDG_CACHE_HOME="${cache_dir}"
+
 exec dbus-run-session -- /usr/bin/opera \
   --no-first-run \
   --disable-default-apps \

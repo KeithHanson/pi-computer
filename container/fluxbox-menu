@@ -1,0 +1,5 @@
+[begin] (Fluxbox)
+  [exec] (Opera) {/usr/bin/opera}
+  [separator]
+  [exit] (Exit)
+[end]

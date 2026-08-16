@@ -73,14 +73,14 @@ This repository currently provides a Docker/Compose foundation for a local graph
 - Compose allocates `1gb` `/dev/shm` for browser stability.
 - Healthcheck verifies X display, Fluxbox, VNC IPv4 loopback relay, noVNC/websockify, Opera process, local noVNC HTTP, loopback VNC readiness/no IPv6 VNC reachability, CDP `/json/version`, and a non-mutating browser websocket readiness probe across the Runtime and Page CDP domains without wildcard CDP binding.
 - Host-accessible runtime logs are written to `./runtime-logs/` by default; tail those files directly instead of relying on `docker compose logs` for routine debugging.
-- An optional host Opera profile directory is mounted read-only at startup, copied into an internal frozen snapshot under `/home/pi/opera-profile-frozen`, and restored into the live Opera profile before every browser start.
+- Host profile import is fail-fast and supports only a closed exported `opera-stable` snapshot created by `scripts/export-opera-profile.sh`; raw live profile mounts are rejected, empty profile DB files are allowed, and populated authenticated/session stores are rejected.
 
 ### Quick start
 
 Build and start locally:
 
 ```sh
-mkdir -p runtime-logs operator/opera-profile
+mkdir -p runtime-logs operator/opera-profile-export
 docker compose build pi-computer
 docker compose up -d pi-computer
 ```
@@ -142,25 +142,21 @@ Remove the persisted browser home volume if you want a clean profile:
 docker compose down -v
 ```
 
-### Host profile import and frozen restore
+### Supported host profile workflow
 
-To share a host Opera profile into the container, point `HOST_OPERA_PROFILE_DIR` at the profile directory you want copied into the container snapshot before startup. For example:
+Primary blocker: authenticated Opera login/session state is not reliably portable by raw profile copy across machines or installs.
+Secondary symptoms: importing a live profile or mixing Opera channels/version families makes restore even less reliable.
 
-```sh
-HOST_OPERA_PROFILE_DIR=/absolute/path/to/opera-profile \
-HOST_RUNTIME_LOG_DIR=./runtime-logs \
-docker compose up -d pi-computer
-```
+Supported import workflow:
 
-If you do nothing, Compose mounts `./operator/opera-profile/` read-only as the host profile source. Leaving that directory empty keeps the existing in-container frozen snapshot unchanged.
-
-Runtime behavior:
-
-- host profile source: `/mnt/host-opera-profile`
-- frozen in-container snapshot: `/home/pi/opera-profile-frozen`
-- live Opera runtime profile: `/home/pi/.config/opera`
-
-On each container startup, any non-empty host profile source is recopied into the frozen snapshot. On every Opera/browser start, the live runtime profile is deleted and restored from that frozen snapshot before Opera launches.
+1. Close the source Opera browser first.
+2. Export a closed `opera-stable` snapshot on the host. The exporter allows normal empty Opera DB files from a signed-out closed profile, but still rejects populated login/session stores:
+   ```sh
+   ./scripts/export-opera-profile.sh --source /absolute/path/to/opera-profile --dest ./operator/opera-profile-export --browser-product opera-stable
+   ```
+3. Start the container with the default export mount or override `HOST_OPERA_PROFILE_EXPORT_DIR`.
+4. The container copies the exported snapshot into `/home/pi/opera-profile-frozen` and restores that frozen snapshot into the live Opera profile before each browser start.
+5. If you need an authenticated session, sign in inside the container and keep the named `/home/pi` volume. Imported host login state is intentionally rejected.
 
 ### Runtime validation commands
 
@@ -177,6 +173,7 @@ docker compose exec pi-computer sh -lc 'test -d /home/pi/opera-profile-frozen &&
 docker compose exec pi-computer sh -lc 'printf mutated > /home/pi/.config/opera/profile-restore-marker && echo live_before_restart=$(cat /home/pi/.config/opera/profile-restore-marker)'
 docker compose restart pi-computer && sleep 10
 docker compose exec pi-computer sh -lc 'if [ -f /home/pi/.config/opera/profile-restore-marker ]; then echo live_after_restart=$(cat /home/pi/.config/opera/profile-restore-marker); else echo live_after_restart=missing; fi'
+cat runtime-logs/profile-import-error.log 2>/dev/null || true
 tail -n 50 runtime-logs/opera.err.log runtime-logs/fluxbox.err.log runtime-logs/api.log runtime-logs/browser-mcp.log 2>/dev/null || true
 ./scripts/smoke-cdp.sh
 ./scripts/smoke-browser-mcp.sh
