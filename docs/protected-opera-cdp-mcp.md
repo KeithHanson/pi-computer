@@ -45,7 +45,10 @@ Useful checks:
 docker compose exec pi-computer pi --version
 docker compose exec pi-computer pi auth check --provider openai --json --no-refresh
 docker compose exec pi-computer /usr/local/bin/pi-computer-bootstrap-pi
+curl -fsS 'http://127.0.0.1:8080/v1/runtime/logs/opera-browser.log?lines=200'
 ```
+
+Opera now also writes a Chromium-style debug log to `/var/log/pi-computer/opera-browser.log` inside the container, in addition to the Supervisor-captured `opera.log` and `opera.err.log` files.
 
 ## MCP bridge
 

@@ -16,6 +16,10 @@ const MAX_TIMEOUT = Number(process.env.TASK_MAX_TIMEOUT_SECONDS || 300);
 const MAX_INSTRUCTION = Number(process.env.TASK_MAX_INSTRUCTION_CHARS || 2000);
 const MAX_PI_INSTRUCTION = Number(process.env.PI_HARNESS_MAX_INSTRUCTION_CHARS || 4000);
 const MAX_NEWS_ARTICLES = Math.max(1, Number(process.env.PI_BROWSER_TASK_MAX_ARTICLES || 5));
+const MAX_EVENT_CHUNK_BYTES = Number(process.env.PI_HARNESS_EVENT_CHUNK_BYTES || 4000);
+const RUNTIME_LOG_DIR = process.env.PI_COMPUTER_RUNTIME_LOG_DIR || '/var/log/pi-computer';
+const DEFAULT_RUNTIME_LOG_LINES = Number(process.env.PI_COMPUTER_RUNTIME_LOG_LINES || 200);
+const MAX_RUNTIME_LOG_LINES = Number(process.env.PI_COMPUTER_RUNTIME_LOG_MAX_LINES || 1000);
 const BRIDGE = process.env.BROWSER_MCP_BRIDGE || '/usr/local/bin/pi-computer-browser-mcp';
 const PI_BIN = process.env.PI_HARNESS_BIN || '/usr/local/bin/pi';
 const PI_MCP_CONFIG = process.env.PI_HARNESS_MCP_CONFIG || '/home/pi/.config/mcp/mcp.json';
@@ -34,6 +38,7 @@ function taskDir(taskId) { return path.join(STORE_DIR, taskId); }
 function taskPath(taskId) { return path.join(taskDir(taskId), 'task.json'); }
 function eventsPath(taskId) { return path.join(taskDir(taskId), 'events.jsonl'); }
 function artifactsDir(taskId) { return path.join(taskDir(taskId), 'artifacts'); }
+function runtimeLogPath(name) { return path.join(RUNTIME_LOG_DIR, name); }
 
 function publicTask(task) {
   return {
@@ -69,6 +74,44 @@ async function emitEvent(task, type, data = {}) {
     res.write(`event: ${type}\n`);
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   }
+}
+
+function chunkText(text, maxBytes = MAX_EVENT_CHUNK_BYTES) {
+  const source = String(text || '');
+  const chunks = [];
+  let current = '';
+  let currentBytes = 0;
+  for (const char of source) {
+    const charBytes = Buffer.byteLength(char);
+    if (current && currentBytes + charBytes > maxBytes) {
+      chunks.push(current);
+      current = '';
+      currentBytes = 0;
+    }
+    current += char;
+    currentBytes += charBytes;
+  }
+  if (current) chunks.push(current);
+  return chunks.length ? chunks : [''];
+}
+
+async function emitTextEvents(task, type, text) {
+  for (const chunk of chunkText(text)) {
+    await emitEvent(task, type, { text: chunk });
+  }
+}
+
+function parsePositiveInt(value, fallback, maxValue) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, maxValue);
+}
+
+async function readTailLines(filePath, lineCount) {
+  const text = await fs.readFile(filePath, 'utf8');
+  const lines = text.split(/\r?\n/);
+  const trimmed = lines[lines.length - 1] === '' ? lines.slice(0, -1) : lines;
+  return trimmed.slice(-lineCount).join('\n');
 }
 
 function send(res, status, body, headers = {}) {
@@ -218,7 +261,8 @@ function buildNewsPrompt(task) {
 
 function runProcess(command, args, timeoutMs, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options });
+    const { onStdout, onStderr, ...spawnOptions } = options;
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...spawnOptions });
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -228,8 +272,16 @@ function runProcess(command, args, timeoutMs, options = {}) {
       child.kill('SIGTERM');
       reject(new Error(`${command} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      if (onStdout) onStdout(text);
+    });
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      if (onStderr) onStderr(text);
+    });
     child.on('error', (error) => {
       if (settled) return;
       settled = true;
@@ -268,7 +320,12 @@ async function runPiNewsTask(task) {
 
   const workDir = taskDir(task.taskId);
   await fs.mkdir(workDir, { recursive: true });
-  const result = await runProcess(PI_BIN, piArgs, timeoutMs, { cwd: workDir, env: { ...process.env, HOME: process.env.HOME || '/home/pi' } });
+  const result = await runProcess(PI_BIN, piArgs, timeoutMs, {
+    cwd: workDir,
+    env: { ...process.env, HOME: process.env.HOME || '/home/pi' },
+    onStdout: (text) => { emitTextEvents(task, 'pi.stdout', text).catch(() => {}); },
+    onStderr: (text) => { emitTextEvents(task, 'pi.stderr', text).catch(() => {}); },
+  });
   await emitEvent(task, 'pi.completed', { exitCode: 0, stdoutBytes: Buffer.byteLength(result.stdout), stderrBytes: Buffer.byteLength(result.stderr) });
 
   const rawArtifact = await writeArtifact(task, 'pi-harness-output.txt', result.stdout, 'text/plain');
@@ -354,13 +411,25 @@ function routeMatch(pathname) {
   const task = pathname.match(/^\/v1\/tasks\/([^/]+)$/);
   const cancel = pathname.match(/^\/v1\/tasks\/([^/]+)\/cancel$/);
   const events = pathname.match(/^\/v1\/tasks\/([^/]+)\/events$/);
-  return { taskId: task && task[1], cancelId: cancel && cancel[1], eventsId: events && events[1] };
+  const runtimeLog = pathname.match(/^\/v1\/runtime\/logs\/([A-Za-z0-9._-]+)$/);
+  return { taskId: task && task[1], cancelId: cancel && cancel[1], eventsId: events && events[1], runtimeLogName: runtimeLog && runtimeLog[1] };
 }
 
 async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (req.method === 'GET' && url.pathname === '/healthz') {
-    return send(res, 200, { ok: true, service: 'pi-computer-api', storeDir: STORE_DIR, activeTaskId, piHarness: { bin: PI_BIN, mcpConfig: PI_MCP_CONFIG, mcpConfigMode: 'ambient_discovery' } });
+    return send(res, 200, {
+      ok: true,
+      service: 'pi-computer-api',
+      storeDir: STORE_DIR,
+      activeTaskId,
+      piHarness: { bin: PI_BIN, mcpConfig: PI_MCP_CONFIG, mcpConfigMode: 'ambient_discovery' },
+      runtimeLogs: {
+        dir: RUNTIME_LOG_DIR,
+        available: ['api.err.log', 'api.log', 'opera.err.log', 'opera.log', 'opera-browser.log', 'supervisord.log', 'xvfb.err.log', 'xvfb.log'],
+        tailEndpoint: '/v1/runtime/logs/<name>?lines=200',
+      },
+    });
   }
   const match = routeMatch(url.pathname);
   try {
@@ -391,6 +460,19 @@ async function handler(req, res) {
       if (!sseClients.has(task.taskId)) sseClients.set(task.taskId, new Set());
       sseClients.get(task.taskId).add(res);
       req.on('close', () => sseClients.get(task.taskId)?.delete(res));
+      return;
+    }
+    if (req.method === 'GET' && match.runtimeLogName) {
+      const lines = parsePositiveInt(url.searchParams.get('lines'), DEFAULT_RUNTIME_LOG_LINES, MAX_RUNTIME_LOG_LINES);
+      const filePath = runtimeLogPath(match.runtimeLogName);
+      let text;
+      try {
+        text = await readTailLines(filePath, lines);
+      } catch (error) {
+        return sendError(res, error.code === 'ENOENT' ? 404 : 500, error.code === 'ENOENT' ? 'runtime log not found' : `could not read runtime log: ${error.message}`);
+      }
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end(text ? `${text}\n` : '');
       return;
     }
     return sendError(res, 404, 'not found');

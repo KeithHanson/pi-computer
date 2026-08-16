@@ -9,13 +9,17 @@ done
 profile_dir="${OPERA_PROFILE_DIR:-${HOME}/.config/opera}"
 cdp_host="${CDP_HOST:-127.0.0.1}"
 cdp_port="${CDP_PORT:-9222}"
-mkdir -p "${profile_dir}"
+chrome_log_file="${OPERA_CHROME_LOG_FILE:-/var/log/pi-computer/opera-browser.log}"
+mkdir -p "${profile_dir}" "$(dirname "${chrome_log_file}")"
 rm -f "${profile_dir}/SingletonLock" "${profile_dir}/SingletonSocket" "${profile_dir}/SingletonCookie"
+export CHROME_LOG_FILE="${chrome_log_file}"
 exec dbus-run-session -- /usr/bin/opera \
   --no-first-run \
   --disable-default-apps \
   --disable-dev-shm-usage=false \
   --disable-gpu \
+  --enable-logging=stderr \
+  --v=1 \
   --no-sandbox \
   --remote-debugging-address="${cdp_host}" \
   --remote-debugging-port="${cdp_port}" \

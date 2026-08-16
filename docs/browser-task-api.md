@@ -89,6 +89,27 @@ Task states used by this implementation: `queued`, `starting`, `running`, `cance
 
 Streams task events as unauthenticated Server-Sent Events (`text/event-stream`). Events include state transitions plus runner milestones such as `runner.selected`, `browser.navigate`, `pi.started`, and `pi.completed`.
 
+For `news_browse_summary`, the API now also emits incremental `pi.stdout` and `pi.stderr` events while the Pi harness is still running, so an operator can watch the bounded harness output live instead of waiting only for terminal artifacts.
+
+### `GET /v1/runtime/logs/:name?lines=<n>`
+
+Returns the last `n` lines of a supervised runtime log as plain text (`text/plain`). This is intended for live debugging from outside the container without opening a shell.
+
+Useful names include:
+
+- `opera.log`
+- `opera.err.log`
+- `opera-browser.log`
+- `api.log`
+- `api.err.log`
+- `supervisord.log`
+
+Example:
+
+```sh
+curl -fsS 'http://127.0.0.1:8080/v1/runtime/logs/opera-browser.log?lines=200'
+```
+
 ### `POST /v1/tasks/:taskId/cancel`
 
 Requests cooperative cancellation. Cancellation is best-effort and most reliable before a browser bridge or Pi harness run starts.
@@ -112,6 +133,8 @@ Task state and artifacts are persisted under:
 - the structured summary JSON returned through the Pi harness;
 - raw Pi stdout;
 - Pi stderr for troubleshooting.
+
+For live observation during a running task, prefer `GET /v1/tasks/:taskId/events` and filter for `pi.stdout` / `pi.stderr`.
 
 API responses include artifact IDs and metadata only; operators can inspect the local store out of band with `docker compose exec`.
 
